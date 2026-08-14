@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tanstack/react-table": "^8.20.5",
+    "autoprefixer": "^10.4.20",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
@@ -20,8 +21,10 @@
     "iron-session": "^8.0.4",
     "mysql2": "^3.11.3",
     "next": "16.3.1",
+    "postcss": "^8.4.41",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",
     "zod": "^3.23.8"
   },
@@ -30,12 +33,9 @@
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.4.20",
     "dotenv": "^16.4.5",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.3.1",
-    "postcss": "^8.4.41",
-    "tailwindcss": "^3.4.10",
     "tsx": "^4.17.0"
   },
   "engines": {
