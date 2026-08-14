@@ -13,8 +13,10 @@ import {
 } from '@tanstack/react-table';
 import type { TicketRow } from '@/lib/queries/tickets';
 import type { FilterOptions } from '@/lib/queries/filter-options';
+import { PAYMENT_TEAM_COLUMNS } from '@/lib/export/columns';
 import StatusBadge from './StatusBadge';
 import BooleanBadge from './BooleanBadge';
+import DocumentLink from '@/components/detail/DocumentLink';
 import ColumnVisibilityMenu from './ColumnVisibilityMenu';
 import FilterDrawer from '@/components/filters/FilterDrawer';
 import FilterChips from '@/components/filters/FilterChips';
@@ -34,9 +36,27 @@ interface PaginationInfo {
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 250];
+const STORAGE_KEY = 'refly_payment_dashboard_columns_v1';
 
-function createColumns(): ColumnDef<TicketRow>[] {
-  return [
+// Default visible column set (18 core fields)
+const DEFAULT_VISIBLE_IDS = new Set([
+  'ticket_id', 'requested_date', 'ticket_status', 'claim_status', 'claim_number',
+  'first_name', 'last_name', 'email', 'airline', 'flight_number', 'scheduled_date',
+  'compensation_amount', 'amount_received', 'need_payment_details', 'need_resign',
+  'dashboard_status', 'source', 'assignee',
+]);
+
+function buildDefaultVisibilityState(): VisibilityState {
+  const state: VisibilityState = {};
+  for (const col of PAYMENT_TEAM_COLUMNS) {
+    state[col.id] = DEFAULT_VISIBLE_IDS.has(col.id);
+  }
+  return state;
+}
+
+// Build all 59 Payment Team Column definitions with intelligent rendering
+function create59Columns(): ColumnDef<TicketRow>[] {
+  const columns: ColumnDef<TicketRow>[] = [
     {
       id: 'select',
       header: ({ table }) => (
@@ -60,135 +80,73 @@ function createColumns(): ColumnDef<TicketRow>[] {
       enableSorting: false,
       enableHiding: false,
     },
-    {
-      accessorKey: 'claim_number',
-      header: 'Claim #',
-      cell: ({ getValue }) => (
-        <span className="font-mono text-xs font-bold text-zinc-950">{String(getValue() ?? '—')}</span>
-      ),
-    },
-    {
-      accessorKey: 'claim_status',
-      header: 'Claim Status',
-      cell: ({ getValue }) => <StatusBadge type="claim" value={String(getValue() ?? '')} />,
-    },
-    {
-      accessorKey: 'first_name',
-      header: 'First Name',
-      cell: ({ getValue }) => <span className="text-xs font-medium">{String(getValue() ?? '—')}</span>,
-    },
-    {
-      accessorKey: 'last_name',
-      header: 'Last Name',
-      cell: ({ getValue }) => <span className="text-xs font-medium">{String(getValue() ?? '—')}</span>,
-    },
-    {
-      accessorKey: 'email',
-      header: 'Email',
-      cell: ({ getValue }) => (
-        <span className="text-xs font-mono text-zinc-600 truncate max-w-[180px] block">
-          {String(getValue() ?? '—')}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'airline',
-      header: 'Airline',
-      cell: ({ getValue }) => <span className="text-xs font-semibold">{String(getValue() ?? '—')}</span>,
-    },
-    {
-      accessorKey: 'flight_number',
-      header: 'Flight #',
-      cell: ({ getValue }) => (
-        <span className="font-mono text-xs font-medium">{String(getValue() ?? '—')}</span>
-      ),
-    },
-    {
-      accessorKey: 'scheduled_date',
-      header: 'Scheduled',
-      cell: ({ getValue }) => (
-        <span className="text-xs font-mono text-zinc-500">
-          {getValue() ? String(getValue()).slice(0, 10) : '—'}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'departure_airport_iata',
-      header: 'Dep.',
-      cell: ({ row }) => (
-        <span className="text-xs font-mono font-semibold text-zinc-700">
-          {row.original.departure_airport_iata || row.original.departure_airport || '—'}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'destination_airport_iata',
-      header: 'Dest.',
-      cell: ({ row }) => (
-        <span className="text-xs font-mono font-semibold text-zinc-700">
-          {row.original.destination_airport_iata || row.original.destination_airport || '—'}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'compensation_amount',
-      header: 'Compensation',
-      cell: ({ getValue }) => {
-        const v = getValue();
-        return (
-          <span className="text-xs font-mono font-bold text-zinc-950">
-            {v != null ? `€${Number(v).toLocaleString()}` : '—'}
-          </span>
-        );
-      },
-    },
-    {
-      accessorKey: 'amount_received',
-      header: 'Received',
-      cell: ({ getValue }) => {
-        const v = getValue();
-        return (
-          <span className="text-xs font-mono font-bold text-emerald-700">
-            {v != null ? `€${Number(v).toLocaleString()}` : '—'}
-          </span>
-        );
-      },
-    },
-    {
-      accessorKey: 'need_payment_details',
-      header: 'Pay. Details',
-      cell: ({ getValue }) => <BooleanBadge value={!!getValue()} trueLabel="Needed" falseLabel="OK" />,
-    },
-    {
-      accessorKey: 'need_resign',
-      header: 'Re-sign',
-      cell: ({ getValue }) => <BooleanBadge value={!!getValue()} trueLabel="Needed" falseLabel="OK" />,
-    },
-    {
-      accessorKey: 'dashboard_status',
-      header: 'Dashboard',
-      cell: ({ getValue }) => <StatusBadge type="dashboard" value={String(getValue() ?? '')} />,
-    },
-    {
-      accessorKey: 'ticket_status',
-      header: 'Ticket Status',
-      cell: ({ getValue }) => <StatusBadge type="ticket" value={String(getValue() ?? '')} />,
-    },
-    {
-      accessorKey: 'source',
-      header: 'Source',
-      cell: ({ getValue }) => <StatusBadge type="source" value={String(getValue() ?? '')} />,
-    },
-    {
-      accessorKey: 'updated_at',
-      header: 'Updated',
-      cell: ({ getValue }) => (
-        <span className="text-[11px] font-mono text-zinc-400">
-          {getValue() ? String(getValue()).slice(0, 16).replace('T', ' ') : '—'}
-        </span>
-      ),
-    },
   ];
+
+  for (const spec of PAYMENT_TEAM_COLUMNS) {
+    const colDef: ColumnDef<TicketRow> = {
+      accessorKey: spec.id,
+      header: spec.label,
+      cell: ({ row, getValue }) => {
+        const val = getValue();
+
+        if (val === null || val === undefined || val === '') {
+          return <span className="text-zinc-400 font-mono text-xs">—</span>;
+        }
+
+        switch (spec.type) {
+          case 'currency': {
+            const num = Number(val);
+            return (
+              <div className="text-right font-mono font-bold text-xs text-zinc-950">
+                {isNaN(num) ? String(val) : `€${num.toLocaleString('en-EU', { minimumFractionDigits: 2 })}`}
+              </div>
+            );
+          }
+          case 'date': {
+            const strVal = String(val);
+            return (
+              <span className="font-mono text-xs text-zinc-500">
+                {strVal.length >= 10 ? strVal.slice(0, 16).replace('T', ' ') : strVal}
+              </span>
+            );
+          }
+          case 'badge': {
+            const badgeType = spec.id.includes('claim') ? 'claim' : spec.id.includes('ticket') ? 'ticket' : spec.id.includes('dashboard') ? 'dashboard' : 'source';
+            return <StatusBadge type={badgeType as any} value={String(val)} />;
+          }
+          case 'boolean': {
+            return <BooleanBadge value={Boolean(val)} trueLabel="Yes" falseLabel="No" />;
+          }
+          case 'link': {
+            const urlStr = String(val);
+            if (!urlStr.startsWith('http')) {
+              return <span className="font-mono text-xs text-zinc-600 truncate max-w-[120px] block">{urlStr}</span>;
+            }
+            return <DocumentLink label={spec.label} url={urlStr} />;
+          }
+          case 'json': {
+            return (
+              <span className="font-mono text-[10px] bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded text-zinc-600 truncate max-w-[120px] block">
+                {String(val).slice(0, 30)}…
+              </span>
+            );
+          }
+          default: {
+            const isMono = spec.id.includes('number') || spec.id.includes('id') || spec.id.includes('code') || spec.id.includes('iata') || spec.id.includes('phone') || spec.id.includes('ref');
+            return (
+              <span className={`text-xs ${isMono ? 'font-mono font-medium text-zinc-800' : 'text-zinc-900'} truncate max-w-[200px] block`}>
+                {String(val)}
+              </span>
+            );
+          }
+        }
+      },
+    };
+
+    columns.push(colDef);
+  }
+
+  return columns;
 }
 
 export default function TicketsPageClient({ filterOptions }: TicketsPageClientProps) {
@@ -212,13 +170,41 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(buildDefaultVisibilityState());
   const [sorting, setSorting] = useState<SortingState>([
     { id: currentSortBy, desc: currentSortDir === 'desc' },
   ]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Synchronize search input if search param changes externally
+  // Load saved column preferences from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        setColumnVisibility(JSON.parse(saved));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Save column visibility changes to localStorage
+  const handleColumnVisibilityChange = useCallback((updater: VisibilityState | ((prev: VisibilityState) => VisibilityState)) => {
+    setColumnVisibility((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  function resetDefaultColumns() {
+    const defaults = buildDefaultVisibilityState();
+    setColumnVisibility(defaults);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
+    } catch { /* ignore */ }
+  }
+
   useEffect(() => {
     setSearchInput(currentSearch);
   }, [currentSearch]);
@@ -240,7 +226,6 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
-  // Fetch data via AJAX endpoint without full page reloads
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -251,7 +236,7 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
       setData(json.data ?? []);
       setPagination(json.pagination ?? { page: 1, pageSize: 25, total: 0, totalPages: 0 });
     } catch {
-      setError('Failed to load claim records. Please check your network connection.');
+      setError('Failed to load claim records. Please check database connectivity.');
     } finally {
       setLoading(false);
     }
@@ -259,7 +244,6 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Debounced search handling (300ms)
   function handleSearchChange(val: string) {
     setSearchInput(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -315,13 +299,13 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
     .map((idx) => data[parseInt(idx)]?.id)
     .filter(Boolean) as number[];
 
-  const columns = createColumns();
+  const columns = create59Columns();
   const table = useReactTable({
     data,
     columns,
     state: { sorting, columnVisibility, rowSelection },
     onSortingChange: handleSortingChange,
-    onColumnVisibilityChange: setColumnVisibility,
+    onColumnVisibilityChange: handleColumnVisibilityChange,
     onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
@@ -343,7 +327,7 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
             </span>
           </div>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Paginated server-side SQL table with 30+ filter parameters
+            59 Payment Team Columns available with server-side SQL pagination over 1.8M+ rows
           </p>
         </div>
 
@@ -352,7 +336,7 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
             searchParams={searchParams}
             selectedIds={selectedIds}
           />
-          <ColumnVisibilityMenu table={table} />
+          <ColumnVisibilityMenu table={table} onResetDefaults={resetDefaultColumns} />
           <button
             id="open-filter-drawer"
             onClick={() => setFilterDrawerOpen(true)}
@@ -428,7 +412,6 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
 
       {/* Table Container */}
       <div className="card overflow-hidden flex-1 flex flex-col min-h-0 relative">
-        {/* Localized loading progress bar */}
         {loading && (
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-zinc-200 overflow-hidden z-20">
             <div className="h-full bg-zinc-950 animate-pulse w-full" />
