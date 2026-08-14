@@ -1,38 +1,63 @@
-type CardColor = 'indigo' | 'amber' | 'green' | 'orange' | 'rose' | 'purple' | 'teal' | 'cyan';
+'use client';
 
-const COLOR_MAP: Record<CardColor, { bg: string; text: string; border: string }> = {
-  indigo:  { bg: 'bg-indigo-500/10',  text: 'text-indigo-400',  border: 'border-indigo-500/20' },
-  amber:   { bg: 'bg-amber-500/10',   text: 'text-amber-400',   border: 'border-amber-500/20' },
-  green:   { bg: 'bg-green-500/10',   text: 'text-green-400',   border: 'border-green-500/20' },
-  orange:  { bg: 'bg-orange-500/10',  text: 'text-orange-400',  border: 'border-orange-500/20' },
-  rose:    { bg: 'bg-rose-500/10',    text: 'text-rose-400',    border: 'border-rose-500/20' },
-  purple:  { bg: 'bg-purple-500/10',  text: 'text-purple-400',  border: 'border-purple-500/20' },
-  teal:    { bg: 'bg-teal-500/10',    text: 'text-teal-400',    border: 'border-teal-500/20' },
-  cyan:    { bg: 'bg-cyan-500/10',    text: 'text-cyan-400',    border: 'border-cyan-500/20' },
-};
+import Link from 'next/link';
 
 interface KpiCardProps {
   id: string;
   label: string;
   value: string;
-  icon: string;
-  color: CardColor;
+  subValue?: string;
+  icon: React.ReactNode;
+  href: string;
+  badgeText?: string;
 }
 
-export default function KpiCard({ id, label, value, icon, color }: KpiCardProps) {
-  const c = COLOR_MAP[color];
+export default function KpiCard({
+  id,
+  label,
+  value,
+  subValue,
+  icon,
+  href,
+  badgeText,
+}: KpiCardProps) {
   return (
-    <div
+    <Link
       id={id}
-      className={`card p-4 border ${c.border} hover:shadow-card-lg transition-shadow`}
+      href={href}
+      className="group relative card p-4 flex flex-col justify-between cursor-pointer border border-zinc-200 hover:border-zinc-900 hover:shadow-card-hover transition-all duration-200 ease-out rounded-lg overflow-hidden bg-white"
     >
-      <div className="flex items-start justify-between mb-3">
-        <div className={`w-9 h-9 rounded-lg ${c.bg} flex items-center justify-center text-lg`}>
-          {icon}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="w-8 h-8 rounded-md bg-zinc-100 text-zinc-900 border border-zinc-200/80 flex items-center justify-center text-sm font-semibold group-hover:bg-zinc-900 group-hover:text-white group-hover:border-zinc-900 transition-colors">
+            {icon}
+          </div>
+          <div className="flex items-center gap-1.5">
+            {badgeText && (
+              <span className="text-[10px] uppercase font-mono font-semibold tracking-wider text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200">
+                {badgeText}
+              </span>
+            )}
+            <span className="text-zinc-400 group-hover:text-zinc-900 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all text-xs font-mono font-bold">
+              ↗
+            </span>
+          </div>
         </div>
+        <p className="text-2xl font-bold text-zinc-950 tracking-tight leading-tight font-mono">
+          {value}
+        </p>
       </div>
-      <p className={`text-2xl font-bold ${c.text} leading-tight`}>{value}</p>
-      <p className="text-xs text-text-secondary mt-1">{label}</p>
-    </div>
+
+      <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between">
+        <p className="text-xs font-medium text-zinc-600 group-hover:text-zinc-900 transition-colors">
+          {label}
+        </p>
+        {subValue && (
+          <p className="text-[11px] text-zinc-400 font-mono">
+            {subValue}
+          </p>
+        )}
+      </div>
+    </Link>
   );
 }

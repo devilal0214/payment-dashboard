@@ -15,7 +15,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    label: 'Claims',
+    label: 'Claims Console',
     href: '/tickets',
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -30,42 +30,45 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-56 shrink-0 bg-surface-1 border-r border-border flex flex-col h-full">
-      {/* Logo */}
-      <div className="px-4 py-4 border-b border-border">
+    <aside className="w-56 shrink-0 bg-zinc-950 text-white border-r border-zinc-800 flex flex-col h-full select-none">
+      {/* Brand Header */}
+      <div className="px-4 py-4 border-b border-zinc-800/80">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-brand-gradient flex items-center justify-center shadow-glow shrink-0">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
+          <div className="w-7 h-7 rounded bg-white text-zinc-950 flex items-center justify-center font-bold text-xs font-mono shadow-subtle shrink-0">
+            RF
           </div>
           <div>
-            <p className="text-sm font-bold text-text-primary leading-tight">ReFly</p>
-            <p className="text-xs text-text-muted leading-tight">Payment Reports</p>
+            <p className="text-xs font-bold text-white tracking-wide uppercase leading-none">ReFly</p>
+            <p className="text-[10px] text-zinc-400 font-mono leading-none mt-1">Payment Intelligence</p>
           </div>
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-2 py-3 space-y-0.5">
-        <p className="px-3 py-1.5 text-xs font-semibold text-text-muted uppercase tracking-wider">
-          Reporting
+      {/* Navigation Links */}
+      <nav className="flex-1 px-2.5 py-4 space-y-1">
+        <p className="px-3 py-1.5 text-[10px] font-mono font-semibold text-zinc-500 uppercase tracking-widest">
+          Main Console
         </p>
         {NAV_ITEMS.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
           return (
             <Link key={item.href} href={item.href} className={`sidebar-link ${isActive ? 'active' : ''}`}>
-              {item.icon}
-              {item.label}
+              <span className={isActive ? 'text-white' : 'text-zinc-400'}>{item.icon}</span>
+              <span>{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-border">
-        <p className="text-xs text-text-muted">Read-only reporting</p>
+      {/* System Footer */}
+      <div className="p-3 border-t border-zinc-800/80 bg-zinc-950">
+        <div className="px-2 py-1.5 rounded bg-zinc-900 border border-zinc-800 text-[11px] font-mono text-zinc-400 flex items-center justify-between">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            READ-ONLY
+          </span>
+          <span className="text-zinc-500">v1.0</span>
+        </div>
       </div>
     </aside>
   );

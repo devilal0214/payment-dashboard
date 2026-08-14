@@ -30,7 +30,7 @@ export default function LoginForm() {
         router.refresh();
       } else {
         const data = await res.json();
-        setError(data.error || 'Login failed');
+        setError(data.error || 'Invalid credentials');
       }
     } catch {
       setError('Network error. Please try again.');
@@ -40,28 +40,22 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface-0 p-4">
-      {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-radial from-brand-950/40 via-transparent to-transparent pointer-events-none" />
-
-      <div className="relative w-full max-w-sm">
-        {/* Logo / Brand */}
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 select-none">
+      <div className="w-full max-w-sm">
+        {/* Brand */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-gradient shadow-glow mb-4">
-            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-zinc-950 text-white font-mono font-bold text-base shadow-subtle mb-3">
+            RF
           </div>
-          <h1 className="text-xl font-bold text-text-primary">ReFly Payment Dashboard</h1>
-          <p className="text-sm text-text-secondary mt-1">Sign in to access your reports</p>
+          <h1 className="text-xl font-bold text-zinc-950 tracking-tight">ReFly Payment Reporting</h1>
+          <p className="text-xs text-zinc-500 mt-1 font-mono">Internal Operations Console</p>
         </div>
 
-        {/* Login card */}
-        <div className="card p-6">
+        {/* Login Card */}
+        <div className="card p-6 bg-white border border-zinc-200 shadow-card">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="username" className="block text-xs font-medium text-text-secondary mb-1.5">
+              <label htmlFor="username" className="block text-xs font-semibold text-zinc-700 mb-1.5">
                 Username
               </label>
               <input
@@ -72,13 +66,13 @@ export default function LoginForm() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="input-base"
-                placeholder="Enter your username"
+                placeholder="Enter username"
                 disabled={loading}
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-xs font-medium text-text-secondary mb-1.5">
+              <label htmlFor="password" className="block text-xs font-semibold text-zinc-700 mb-1.5">
                 Password
               </label>
               <input
@@ -89,13 +83,13 @@ export default function LoginForm() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="input-base"
-                placeholder="Enter your password"
+                placeholder="Enter password"
                 disabled={loading}
               />
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-xs">
+              <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200 rounded text-rose-700 text-xs font-medium">
                 <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -108,25 +102,25 @@ export default function LoginForm() {
               id="login-submit"
               type="submit"
               disabled={loading || !username || !password}
-              className="w-full bg-brand-gradient hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed
-                         text-white font-semibold py-2.5 px-4 rounded-lg transition-opacity text-sm shadow-glow"
+              className="w-full bg-zinc-950 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed
+                         text-white font-bold py-2.5 px-4 rounded-md transition-all text-xs shadow-subtle"
             >
               {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                <span className="flex items-center justify-center gap-2 font-mono">
+                  <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor"
                       d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  Signing in…
+                  Authenticating…
                 </span>
               ) : 'Sign In'}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-xs text-text-muted mt-6">
-          Authorized personnel only. All access is monitored and logged.
+        <p className="text-center text-[11px] font-mono text-zinc-400 mt-6">
+          Authorized access only · All actions audited
         </p>
       </div>
     </div>

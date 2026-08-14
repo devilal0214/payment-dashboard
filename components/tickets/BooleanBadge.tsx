@@ -10,11 +10,12 @@ export default function BooleanBadge({
   falseLabel = 'No',
 }: BooleanBadgeProps) {
   return value ? (
-    <span className="badge border bg-rose-500/15 text-rose-300 border-rose-500/25 text-[11px]">
+    <span className="badge bg-rose-50 text-rose-700 border-rose-200 font-medium">
+      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
       {trueLabel}
     </span>
   ) : (
-    <span className="badge border bg-surface-3 text-text-muted border-border text-[11px]">
+    <span className="badge bg-zinc-100 text-zinc-600 border-zinc-200 font-medium">
       {falseLabel}
     </span>
   );

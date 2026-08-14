@@ -1,41 +1,42 @@
-// Status badge color maps
+// Status badge color maps with high-contrast, clean monochrome & muted fintech tones
 const CLAIM_STATUS_COLORS: Record<string, string> = {
-  open:        'bg-blue-500/15 text-blue-300 border-blue-500/25',
-  pending:     'bg-amber-500/15 text-amber-300 border-amber-500/25',
-  solved:      'bg-green-500/15 text-green-300 border-green-500/25',
-  closed:      'bg-surface-4 text-text-muted border-border',
-  delayed:     'bg-orange-500/15 text-orange-300 border-orange-500/25',
-  cancelled:   'bg-red-500/15 text-red-300 border-red-500/25',
-  accepted:    'bg-teal-500/15 text-teal-300 border-teal-500/25',
-  rejected:    'bg-rose-500/15 text-rose-300 border-rose-500/25',
-  'in-progress':'bg-purple-500/15 text-purple-300 border-purple-500/25',
+  open:         'bg-blue-50 text-blue-700 border-blue-200',
+  pending:      'bg-amber-50 text-amber-800 border-amber-200',
+  solved:       'bg-emerald-50 text-emerald-800 border-emerald-200',
+  closed:       'bg-zinc-100 text-zinc-600 border-zinc-200',
+  delayed:      'bg-orange-50 text-orange-800 border-orange-200',
+  cancelled:    'bg-rose-50 text-rose-800 border-rose-200',
+  accepted:     'bg-emerald-50 text-emerald-800 border-emerald-200',
+  rejected:     'bg-rose-50 text-rose-800 border-rose-200',
+  'in-progress':'bg-violet-50 text-violet-800 border-violet-200',
 };
 
 const TICKET_STATUS_COLORS: Record<string, string> = {
-  open:        'bg-blue-500/15 text-blue-300 border-blue-500/25',
-  pending:     'bg-amber-500/15 text-amber-300 border-amber-500/25',
-  solved:      'bg-green-500/15 text-green-300 border-green-500/25',
-  closed:      'bg-surface-4 text-text-muted border-border',
-  'on-hold':   'bg-orange-500/15 text-orange-300 border-orange-500/25',
-  new:         'bg-indigo-500/15 text-indigo-300 border-indigo-500/25',
+  open:        'bg-blue-50 text-blue-700 border-blue-200',
+  pending:     'bg-amber-50 text-amber-800 border-amber-200',
+  solved:      'bg-emerald-50 text-emerald-800 border-emerald-200',
+  closed:      'bg-zinc-100 text-zinc-600 border-zinc-200',
+  'on-hold':   'bg-orange-50 text-orange-800 border-orange-200',
+  new:         'bg-sky-50 text-sky-700 border-sky-200',
 };
 
 const DASHBOARD_STATUS_COLORS: Record<string, string> = {
-  completed:   'bg-green-500/15 text-green-300 border-green-500/25',
-  incomplete:  'bg-amber-500/15 text-amber-300 border-amber-500/25',
-  pending:     'bg-blue-500/15 text-blue-300 border-blue-500/25',
-  none:        'bg-surface-4 text-text-muted border-border',
+  completed:   'bg-emerald-50 text-emerald-800 border-emerald-200',
+  incomplete:  'bg-amber-50 text-amber-800 border-amber-200',
+  pending:     'bg-blue-50 text-blue-700 border-blue-200',
+  none:        'bg-zinc-100 text-zinc-600 border-zinc-200',
 };
 
 const SOURCE_COLORS: Record<string, string> = {
-  refly:       'bg-brand-500/15 text-brand-300 border-brand-500/25',
-  web:         'bg-cyan-500/15 text-cyan-300 border-cyan-500/25',
-  facebook:    'bg-blue-600/15 text-blue-300 border-blue-600/25',
-  google:      'bg-green-500/15 text-green-300 border-green-500/25',
-  email:       'bg-purple-500/15 text-purple-300 border-purple-500/25',
+  refly:       'bg-zinc-900 text-white border-zinc-900 font-semibold',
+  skypay:      'bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold',
+  web:         'bg-zinc-100 text-zinc-800 border-zinc-300',
+  facebook:    'bg-blue-50 text-blue-800 border-blue-200',
+  google:      'bg-emerald-50 text-emerald-800 border-emerald-200',
+  email:       'bg-slate-100 text-slate-800 border-slate-300',
 };
 
-const DEFAULT_COLOR = 'bg-surface-3 text-text-secondary border-border';
+const DEFAULT_COLOR = 'bg-zinc-100 text-zinc-700 border-zinc-200';
 
 type BadgeType = 'claim' | 'ticket' | 'dashboard' | 'source';
 
@@ -52,14 +53,14 @@ interface StatusBadgeProps {
 }
 
 export default function StatusBadge({ type, value }: StatusBadgeProps) {
-  if (!value) return <span className="text-xs text-text-muted">—</span>;
+  if (!value) return <span className="text-xs text-zinc-400">—</span>;
 
   const map = COLOR_MAP[type];
   const key = value.toLowerCase().replace(/\s+/g, '-');
   const colorClass = map[key] ?? DEFAULT_COLOR;
 
   return (
-    <span className={`badge border text-[11px] ${colorClass}`}>
+    <span className={`badge ${colorClass}`}>
       {value}
     </span>
   );

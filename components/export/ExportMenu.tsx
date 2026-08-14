@@ -47,80 +47,98 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
       a.href = url;
       a.click();
     } finally {
-      setTimeout(() => setExporting(false), 1000);
+      setTimeout(() => setExporting(false), 1200);
     }
   }
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative select-none">
       <button
         id="export-menu-toggle"
         onClick={() => setOpen((v) => !v)}
         disabled={exporting}
-        className="flex items-center gap-2 px-3 py-2 bg-surface-3 border border-border rounded-lg
-                   text-sm text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+        className="flex items-center gap-2 px-3.5 py-1.5 bg-zinc-900 text-white rounded-md
+                   text-xs font-semibold hover:bg-zinc-800 transition-colors shadow-subtle disabled:opacity-50"
       >
         {exporting ? (
-          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+          <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
         ) : (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3.5 h-3.5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         )}
         Export
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-3 h-3 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-60 bg-surface-2 border border-border rounded-xl shadow-card-lg animate-fade-in">
-          <div className="p-2 space-y-0.5">
-            <p className="px-3 py-1.5 text-xs font-semibold text-text-muted uppercase tracking-wider">
-              All Filtered Results
+        <div className="absolute right-0 top-full mt-1.5 z-50 w-64 bg-white border border-zinc-200 rounded-lg shadow-dropdown animate-fade-in">
+          <div className="p-2 space-y-1">
+            <p className="px-3 py-1.5 text-[10px] uppercase font-mono font-semibold text-zinc-400 tracking-wider">
+              Filtered Records Export
             </p>
             <button
               id="export-csv-filtered"
               onClick={() => handleExport('csv')}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface-3 text-sm text-text-secondary hover:text-text-primary text-left transition-colors"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors"
             >
-              <span className="text-green-400">CSV</span>
-              Export filtered as CSV
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  CSV
+                </span>
+                <span>Export as CSV</span>
+              </div>
+              <span className="text-[10px] text-zinc-400 font-mono">Streaming</span>
             </button>
             <button
               id="export-xlsx-filtered"
               onClick={() => handleExport('xlsx')}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface-3 text-sm text-text-secondary hover:text-text-primary text-left transition-colors"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors"
             >
-              <span className="text-teal-400">XLSX</span>
-              Export filtered as Excel
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                  XLSX
+                </span>
+                <span>Export as Excel</span>
+              </div>
+              <span className="text-[10px] text-zinc-400 font-mono">Formatted</span>
             </button>
 
             {selectedIds.length > 0 && (
               <>
-                <div className="my-1 border-t border-border" />
-                <p className="px-3 py-1.5 text-xs font-semibold text-text-muted uppercase tracking-wider">
+                <div className="my-1 border-t border-zinc-100" />
+                <p className="px-3 py-1.5 text-[10px] uppercase font-mono font-semibold text-zinc-400 tracking-wider">
                   Selected Rows ({selectedIds.length})
                 </p>
                 <button
                   id="export-csv-selected"
                   onClick={() => handleExport('csv', true)}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface-3 text-sm text-text-secondary hover:text-text-primary text-left transition-colors"
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors"
                 >
-                  <span className="text-green-400">CSV</span>
-                  Export selected as CSV
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      CSV
+                    </span>
+                    <span>Selected ({selectedIds.length}) as CSV</span>
+                  </div>
                 </button>
                 <button
                   id="export-xlsx-selected"
                   onClick={() => handleExport('xlsx', true)}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-surface-3 text-sm text-text-secondary hover:text-text-primary text-left transition-colors"
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors"
                 >
-                  <span className="text-teal-400">XLSX</span>
-                  Export selected as Excel
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                      XLSX
+                    </span>
+                    <span>Selected ({selectedIds.length}) as Excel</span>
+                  </div>
                 </button>
               </>
             )}
