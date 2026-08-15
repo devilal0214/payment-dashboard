@@ -7,7 +7,7 @@
  */
 import { query, queryCount } from '@/lib/db/pool';
 import type { TicketListQuery } from '@/lib/validation/tickets.schema';
-import { ALLOWED_SORT_COLUMNS } from '@/lib/validation/tickets.schema';
+import { SORT_COLUMN_MAP } from '@/lib/validation/tickets.schema';
 
 // ─── Column list for list view (NO heavy JSON fields) ─────────────────────────
 const LIST_COLUMNS = [
@@ -20,13 +20,18 @@ const LIST_COLUMNS = [
   'first_name',
   'last_name',
   'email',
+  'phone_number',
+  'address',
   'airline',
+  'airline_country',
   'flight_number',
   'scheduled_date',
   'departure_airport',
   'departure_airport_iata',
+  'departure_country',
   'destination_airport',
   'destination_airport_iata',
+  'destination_country',
   'compensation_amount',
   'amount_received',
   'need_payment_details',
@@ -39,6 +44,20 @@ const LIST_COLUMNS = [
   'requested_date',
   'updated_at',
   'synced_at',
+  'money_received_date',
+  'claim_acceptance_date',
+  'solved_date',
+  'jurisdiction_1st',
+  'jurisdiction_2nd',
+  'booking_reference_number',
+  'call_status',
+  'closure_reason',
+  'disruption',
+  'legal_fee_to_be_charged',
+  'total_passengers_number',
+  'where_did_you_hear_about_refly',
+  'complete_route',
+  'dashboard_link',
 ].join(', ');
 
 // ─── Detail columns (full, including JSON) ─────────────────────────────────────
@@ -50,13 +69,14 @@ interface WhereResult {
   params: unknown[];
 }
 
-function buildWhere(q: Partial<TicketListQuery>): WhereResult {
+function buildWhere(q: Partial<TicketListQuery> & Record<string, unknown>): WhereResult {
   const conditions: string[] = [];
   const params: unknown[] = [];
 
   // Global search — server-side LIKE across key fields
-  if (q.search) {
-    const like = `%${q.search}%`;
+  const searchVal = (q.search as string) || '';
+  if (searchVal) {
+    const like = `%${searchVal}%`;
     conditions.push(`(
       claim_number LIKE ? OR
       ticket_id LIKE ? OR
@@ -68,57 +88,57 @@ function buildWhere(q: Partial<TicketListQuery>): WhereResult {
       phone_number LIKE ? OR
       flight_number LIKE ? OR
       booking_reference_number LIKE ? OR
-      airline LIKE ?
+      airline LIKE ? OR
+      address LIKE ?
     )`);
-    params.push(like, like, like, like, like, like, like, like, like, like, like);
+    params.push(like, like, like, like, like, like, like, like, like, like, like, like);
   }
 
-  // String exact/partial filters
-  const stringFilters: Array<[keyof TicketListQuery, string]> = [
-    ['claimNumber', 'claim_number'],
-    ['ticketId', 'ticket_id'],
-    ['postId', 'post_id'],
-    ['firstName', 'first_name'],
-    ['lastName', 'last_name'],
-    ['email', 'email'],
-    ['requester', 'requester'],
-    ['assignee', 'assignee'],
-    ['claimStatus', 'claim_status'],
-    ['ticketStatus', 'ticket_status'],
-    ['dashboardStatus', 'dashboard_status'],
-    ['airline', 'airline'],
-    ['flightNumber', 'flight_number'],
-    ['departureCountry', 'departure_country'],
-    ['destinationCountry', 'destination_country'],
-    ['source', 'source'],
-    ['eventType', 'event_type'],
-    ['preferredLanguage', 'preferred_language'],
-    ['originalClaimLanguage', 'original_claim_language'],
+  // String exact/partial filters (handling both camelCase and snake_case)
+  const stringFilters: Array<[unknown, string]> = [
+    [q.claimNumber ?? q.claim_number, 'claim_number'],
+    [q.ticketId ?? q.ticket_id, 'ticket_id'],
+    [q.postId ?? q.post_id, 'post_id'],
+    [q.firstName ?? q.first_name, 'first_name'],
+    [q.lastName ?? q.last_name, 'last_name'],
+    [q.email, 'email'],
+    [q.requester, 'requester'],
+    [q.assignee, 'assignee'],
+    [q.claimStatus ?? q.claim_status, 'claim_status'],
+    [q.ticketStatus ?? q.ticket_status, 'ticket_status'],
+    [q.dashboardStatus ?? q.dashboard_status, 'dashboard_status'],
+    [q.airline, 'airline'],
+    [q.flightNumber ?? q.flight_number, 'flight_number'],
+    [q.departureCountry ?? q.departure_country, 'departure_country'],
+    [q.destinationCountry ?? q.destination_country, 'destination_country'],
+    [q.source, 'source'],
+    [q.eventType ?? q.event_type, 'event_type'],
+    [q.preferredLanguage ?? q.preferred_language, 'preferred_language'],
+    [q.originalClaimLanguage ?? q.original_claim_language, 'original_claim_language'],
   ];
 
-  for (const [key, col] of stringFilters) {
-    const val = q[key] as string | undefined;
-    if (val) {
+  for (const [val, col] of stringFilters) {
+    if (val !== undefined && val !== null && val !== '') {
       conditions.push(`${col} LIKE ?`);
-      params.push(`%${val}%`);
+      params.push(`%${String(val)}%`);
     }
   }
 
   // Boolean filters
-  const boolFilters: Array<[keyof TicketListQuery, string]> = [
-    ['needPaymentDetails', 'need_payment_details'],
-    ['needResign', 'need_resign'],
-    ['dashboardCompleted', 'is_dashboard_completed'],
-    ['whatsappNotification', 'whatsapp_notification'],
-    ['multiplePassengers', 'multiple_passengers'],
-    ['acceptanceDateMandatory', 'acceptance_date_mandatory'],
+  const boolFilters: Array<[unknown, string]> = [
+    [q.needPaymentDetails ?? q.need_payment_details, 'need_payment_details'],
+    [q.needResign ?? q.need_resign, 'need_resign'],
+    [q.dashboardCompleted ?? q.is_dashboard_completed ?? q.dashboard_completed, 'is_dashboard_completed'],
+    [q.whatsappNotification ?? q.whatsapp_notification, 'whatsapp_notification'],
+    [q.multiplePassengers ?? q.multiple_passengers, 'multiple_passengers'],
+    [q.acceptanceDateMandatory ?? q.acceptance_date_mandatory, 'acceptance_date_mandatory'],
   ];
 
-  for (const [key, col] of boolFilters) {
-    const val = q[key] as boolean | undefined;
-    if (val !== undefined) {
+  for (const [val, col] of boolFilters) {
+    if (val !== undefined && val !== null && val !== '') {
+      const isTrue = val === true || val === 'true' || val === 1 || val === '1';
       conditions.push(`${col} = ?`);
-      params.push(val ? 1 : 0);
+      params.push(isTrue ? 1 : 0);
     }
   }
 
@@ -160,11 +180,9 @@ function buildWhere(q: Partial<TicketListQuery>): WhereResult {
 
 // ─── Safe ORDER BY builder ─────────────────────────────────────────────────────
 function buildOrderBy(sortBy?: string, sortDir?: string): string {
-  // Validate against explicit whitelist — NEVER interpolate raw user input
-  const col = ALLOWED_SORT_COLUMNS.includes(sortBy as typeof ALLOWED_SORT_COLUMNS[number])
-    ? sortBy!
-    : 'updated_at';
-  const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
+  const targetCol = sortBy ? (SORT_COLUMN_MAP[sortBy] || SORT_COLUMN_MAP[sortBy.toLowerCase()]) : undefined;
+  const col = targetCol || 'updated_at';
+  const dir = sortDir?.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
   return `ORDER BY ${col} ${dir}`;
 }
 
@@ -180,13 +198,18 @@ export interface TicketRow {
   first_name: string;
   last_name: string;
   email: string;
+  phone_number?: string;
+  address?: string;
   airline: string;
+  airline_country?: string;
   flight_number: string;
   scheduled_date: string;
   departure_airport: string;
   departure_airport_iata: string;
+  departure_country?: string;
   destination_airport: string;
   destination_airport_iata: string;
+  destination_country?: string;
   compensation_amount: number | null;
   amount_received: number | null;
   need_payment_details: number;
@@ -199,6 +222,20 @@ export interface TicketRow {
   requested_date: string;
   updated_at: string;
   synced_at: string;
+  money_received_date?: string;
+  claim_acceptance_date?: string;
+  solved_date?: string;
+  jurisdiction_1st?: string;
+  jurisdiction_2nd?: string;
+  booking_reference_number?: string;
+  call_status?: string;
+  closure_reason?: string;
+  disruption?: string;
+  legal_fee_to_be_charged?: string;
+  total_passengers_number?: number;
+  where_did_you_hear_about_refly?: string;
+  complete_route?: string;
+  dashboard_link?: string;
 }
 
 export interface PaginatedTickets {
@@ -251,7 +288,6 @@ export async function getTicketById(id: number): Promise<Record<string, unknown>
 
 /**
  * Returns rows for export (batched by cursor for large datasets).
- * Does NOT include heavy JSON unless explicitly requested.
  */
 export async function getTicketsForExport(
   q: Partial<TicketListQuery>,

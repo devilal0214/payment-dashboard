@@ -51,6 +51,19 @@ function ensureTmpDir() {
   }
 }
 
+// Check available disk space to prevent filling server disk
+export function checkAvailableDiskSpace(minFreeBytes = 200_000_000): { ok: boolean; freeBytes: number } {
+  ensureTmpDir();
+  try {
+    if (typeof fs.statfsSync === 'function') {
+      const stats = fs.statfsSync(/*turbopackIgnore: true*/ EXPORT_TMP_DIR);
+      const freeBytes = stats.bavail * stats.bsize;
+      return { ok: freeBytes >= minFreeBytes, freeBytes };
+    }
+  } catch { /* skip if unsupported */ }
+  return { ok: true, freeBytes: Number.MAX_SAFE_INTEGER };
+}
+
 // In-memory job cache for ultra-fast polling
 const jobCache = new Map<string, ExportJobMeta>();
 
@@ -126,6 +139,11 @@ export async function createExportJob(
   format: 'xlsx' | 'csv' = 'xlsx',
   selectedIds?: number[],
 ): Promise<ExportJobMeta> {
+  const diskCheck = checkAvailableDiskSpace(200_000_000);
+  if (!diskCheck.ok) {
+    throw new Error('Insufficient server disk space to initiate export process.');
+  }
+
   ensureTmpDir();
 
   const jobId = `exp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

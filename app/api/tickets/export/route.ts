@@ -6,8 +6,6 @@ import { auditLog, createAuditEntry } from '@/lib/audit/log';
 import { generateCsvStream } from '@/lib/export/csv';
 import { generateXlsxBuffer } from '@/lib/export/xlsx';
 
-const LARGE_EXPORT_THRESHOLD = 10_000;
-
 export async function GET(req: NextRequest) {
   try {
     const user = await requireAuth();
@@ -56,13 +54,6 @@ export async function GET(req: NextRequest) {
     if (q.format === 'xlsx') {
       const buffer = await generateXlsxBuffer(q, includeAdvanced, selectedIds);
 
-      // Warn for large exports via header
-      if (buffer.length > 5_000_000) {
-        auditLog(createAuditEntry('export_large', user, {
-          details: { format: 'xlsx', byteSize: buffer.length },
-        }));
-      }
-
       return new Response(buffer.buffer as ArrayBuffer, {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -82,7 +73,6 @@ export async function GET(req: NextRequest) {
         'Content-Disposition': `attachment; filename="${filename}.csv"`,
         'Cache-Control': 'no-store',
         'X-Export-Format': 'csv',
-        'Transfer-Encoding': 'chunked',
       },
     });
   } catch (err) {

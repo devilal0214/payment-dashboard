@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   try {
     const user = await requireAuth();
     if (!hasPermission(user.role, 'exportBasic')) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return NextResponse.json({ error: 'Forbidden: Insufficient permissions for export' }, { status: 403 });
     }
 
     const body = await req.json().catch(() => ({}));
@@ -25,10 +25,16 @@ export async function POST(req: NextRequest) {
       createdAt: job.createdAt,
     });
   } catch (err) {
-    if (err instanceof Error && err.message === 'Unauthorized') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (err instanceof Error) {
+      if (err.message === 'Unauthorized') {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      if (err.message.includes('disk space')) {
+        return NextResponse.json({ error: err.message }, { status: 507 });
+      }
+      return NextResponse.json({ error: err.message }, { status: 400 });
     }
     console.error('[API /tickets/export/jobs POST] Error:', err);
-    return NextResponse.json({ error: 'Failed to create export job' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to initiate export job' }, { status: 500 });
   }
 }

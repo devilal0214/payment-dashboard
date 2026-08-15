@@ -14,6 +14,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
   const [activeJob, setActiveJob] = useState<ExportJobMeta | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -39,7 +40,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
           const updated: ExportJobMeta = await res.json();
           setActiveJob(updated);
         }
-      } catch { /* ignore */ }
+      } catch { /* ignore poll network glitches */ }
     }, 1500);
 
     return () => {
@@ -48,10 +49,24 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
   }, [activeJob]);
 
   async function startExport(format: 'xlsx' | 'csv', useSelectedOnly = false) {
+    if (starting) return; // Prevent duplicate clicks
     setStarting(true);
+    setStartError('');
     setOpen(false);
+    setModalOpen(true);
 
-    // Collect active search params / filters
+    // Initial placeholder status
+    setActiveJob({
+      jobId: 'initializing...',
+      userId: '',
+      format,
+      status: 'queued',
+      processedRows: 0,
+      totalRows: 0,
+      progressPercent: 0,
+      createdAt: new Date().toISOString(),
+    });
+
     const filters: Record<string, string> = {};
     searchParams.forEach((val, key) => {
       if (!['page', 'pageSize', 'sortBy', 'sortDir'].includes(key)) {
@@ -70,15 +85,30 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
         }),
       });
 
-      if (!res.ok) throw new Error('Failed to initiate export');
-      const meta: ExportJobMeta = await res.json();
-      setActiveJob(meta);
-      setModalOpen(true);
-    } catch {
-      alert('Failed to start export process. Please check connection.');
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to initiate export process');
+      }
+
+      setActiveJob(data);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to start export';
+      setStartError(msg);
+      setActiveJob((prev) => prev ? { ...prev, status: 'failed', error: msg } : null);
     } finally {
       setStarting(false);
     }
+  }
+
+  // Non-navigating programmatic download to prevent page error boundaries
+  function downloadExportFile(url: string) {
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    setTimeout(() => {
+      try { document.body.removeChild(iframe); } catch { /* ignore */ }
+    }, 60000);
   }
 
   function formatBytes(bytes?: number): string {
@@ -121,7 +151,8 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
               <button
                 id="export-xlsx-full"
                 onClick={() => startExport('xlsx')}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors"
+                disabled={starting}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors disabled:opacity-50"
               >
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
@@ -136,7 +167,8 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
               <button
                 id="export-csv-full"
                 onClick={() => startExport('csv')}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors"
+                disabled={starting}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors disabled:opacity-50"
               >
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
@@ -156,14 +188,16 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                   <button
                     id="export-xlsx-selected"
                     onClick={() => startExport('xlsx', true)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors"
+                    disabled={starting}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors disabled:opacity-50"
                   >
                     <span>Selected ({selectedIds.length}) as Excel</span>
                   </button>
                   <button
                     id="export-csv-selected"
                     onClick={() => startExport('csv', true)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors"
+                    disabled={starting}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors disabled:opacity-50"
                   >
                     <span>Selected ({selectedIds.length}) as CSV</span>
                   </button>
@@ -216,7 +250,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-mono">
                 <span className="text-zinc-600">
-                  Processed: <strong className="text-zinc-950">{activeJob.processedRows.toLocaleString()}</strong> / {activeJob.totalRows.toLocaleString()}
+                  Processed: <strong className="text-zinc-950">{activeJob.processedRows.toLocaleString()}</strong> / {activeJob.totalRows ? activeJob.totalRows.toLocaleString() : '—'}
                 </span>
                 <span className="font-bold text-zinc-950">{activeJob.progressPercent}%</span>
               </div>
@@ -231,6 +265,16 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
             </div>
 
             {/* Status Messages */}
+            {activeJob.status === 'queued' && (
+              <div className="p-3 bg-zinc-50 border border-zinc-200 rounded text-xs text-zinc-600 font-mono flex items-center gap-2">
+                <svg className="animate-spin w-4 h-4 text-zinc-900 shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Preparing background export task...
+              </div>
+            )}
+
             {activeJob.status === 'processing' && (
               <div className="p-3 bg-zinc-50 border border-zinc-200 rounded text-xs text-zinc-600 font-mono flex items-center gap-2">
                 <svg className="animate-spin w-4 h-4 text-zinc-900 shrink-0" fill="none" viewBox="0 0 24 24">
@@ -244,7 +288,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
             {activeJob.status === 'completed' && (
               <div className="space-y-3">
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-900 font-mono">
-                  ✓ Export completed successfully! All worksheets compressed into ZIP.
+                  ✓ Export completed successfully! File is ready for download.
                   {activeJob.fileSizeBytes && (
                     <span className="block mt-1 font-bold text-emerald-800">
                       File Size: {formatBytes(activeJob.fileSizeBytes)}
@@ -252,23 +296,21 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                   )}
                 </div>
 
-                <a
-                  href={`/api/tickets/export/download/${activeJob.jobId}`}
-                  download={activeJob.zipFilename}
-                  onClick={() => setTimeout(() => setModalOpen(false), 2000)}
+                <button
+                  onClick={() => downloadExportFile(`/api/tickets/export/download/${activeJob.jobId}`)}
                   className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded text-xs transition-colors shadow-subtle"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
                   Download {activeJob.format === 'csv' ? 'CSV Report' : 'ZIP Archive'}
-                </a>
+                </button>
               </div>
             )}
 
             {activeJob.status === 'failed' && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700 font-mono">
-                ✖ Export failed: {activeJob.error || 'Unknown server error'}
+                ✖ Export failed: {activeJob.error || startError || 'Export process could not complete. Please try again.'}
               </div>
             )}
           </div>
