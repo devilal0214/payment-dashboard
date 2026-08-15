@@ -100,15 +100,17 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
     }
   }
 
-  // Non-navigating programmatic download to prevent page error boundaries
-  function downloadExportFile(url: string) {
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = url;
-    document.body.appendChild(iframe);
+  // Safe file download trigger without top-level document replacement
+  function downloadExportFile(url: string, filename?: string) {
+    const link = document.createElement('a');
+    link.href = url;
+    if (filename) link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
     setTimeout(() => {
-      try { document.body.removeChild(iframe); } catch { /* ignore */ }
-    }, 60000);
+      try { document.body.removeChild(link); } catch { /* ignore */ }
+    }, 1000);
   }
 
   function formatBytes(bytes?: number): string {
@@ -297,7 +299,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                 </div>
 
                 <button
-                  onClick={() => downloadExportFile(`/api/tickets/export/download/${activeJob.jobId}`)}
+                  onClick={() => downloadExportFile(`/api/tickets/export/download/${activeJob.jobId}`, activeJob.zipFilename)}
                   className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded text-xs transition-colors shadow-subtle"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

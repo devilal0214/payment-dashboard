@@ -4,12 +4,14 @@
  * Server-side Background Export Job Manager for 1.8M+ rows.
  *
  * KEY GUARANTEES:
- * 1. Keyset pagination (WHERE id > ? ORDER BY id ASC LIMIT 50000) — NO slow OFFSET.
+ * 1. Keyset pagination (WHERE id > ? ORDER BY id ASC LIMIT 5000) — NO slow OFFSET.
  * 2. ExcelJS WorkbookWriter streaming — NO giant in-memory workbooks.
  * 3. 50,000 rows max per XLSX file (part-001.xlsx, part-002.xlsx, etc.).
  * 4. Automatic ZIP compression of all XLSX parts into a single downloadable ZIP archive.
- * 5. Automatic cleanup: deletes individual part files after zipping, and deletes ZIP after download or 1 hour.
- * 6. Isolated export tmp directory outside source code (./tmp/exports/job-[id]).
+ * 5. Dynamic conservative disk-space safety check before job initiation.
+ * 6. Archiver stream completion verification before setting job status = 'completed'.
+ * 7. Isolated export tmp directory outside source code (./tmp/exports/job-[id]).
+ * 8. Automatic cleanup: sweeps jobs older than 60 minutes.
  */
 
 import fs from 'fs';
@@ -51,17 +53,24 @@ function ensureTmpDir() {
   }
 }
 
+// Conservatively estimate required disk space for an export
+export function estimateRequiredDiskSpace(totalRows: number): number {
+  const bytesPerRow = 650; // Conservative estimate per row in XLSX + ZIP
+  const baseSafetyBuffer = 100_000_000; // 100 MB safety buffer
+  return (totalRows * bytesPerRow) + baseSafetyBuffer;
+}
+
 // Check available disk space to prevent filling server disk
-export function checkAvailableDiskSpace(minFreeBytes = 200_000_000): { ok: boolean; freeBytes: number } {
+export function checkAvailableDiskSpace(requiredBytes = 200_000_000): { ok: boolean; freeBytes: number; requiredBytes: number } {
   ensureTmpDir();
   try {
     if (typeof fs.statfsSync === 'function') {
       const stats = fs.statfsSync(/*turbopackIgnore: true*/ EXPORT_TMP_DIR);
       const freeBytes = stats.bavail * stats.bsize;
-      return { ok: freeBytes >= minFreeBytes, freeBytes };
+      return { ok: freeBytes >= requiredBytes, freeBytes, requiredBytes };
     }
   } catch { /* skip if unsupported */ }
-  return { ok: true, freeBytes: Number.MAX_SAFE_INTEGER };
+  return { ok: true, freeBytes: Number.MAX_SAFE_INTEGER, requiredBytes };
 }
 
 // In-memory job cache for ultra-fast polling
@@ -81,8 +90,8 @@ function buildWhere(q: Partial<TicketListQuery> & Record<string, unknown>, selec
   const search = (q.search as string) || '';
   if (search) {
     const like = `%${search}%`;
-    conditions.push(`(claim_number LIKE ? OR ticket_id LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR airline LIKE ? OR flight_number LIKE ? OR booking_reference_number LIKE ?)`);
-    params.push(like, like, like, like, like, like, like, like);
+    conditions.push(`(claim_number LIKE ? OR ticket_id LIKE ? OR external_id LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR airline LIKE ? OR flight_number LIKE ? OR booking_reference_number LIKE ?)`);
+    params.push(like, like, like, like, like, like, like, like, like);
   }
 
   const stringFilters: Array<[string | undefined, string]> = [
@@ -105,6 +114,7 @@ function buildWhere(q: Partial<TicketListQuery> & Record<string, unknown>, selec
     [q.needPaymentDetails ?? q.need_payment_details, 'need_payment_details'],
     [q.needResign ?? q.need_resign, 'need_resign'],
     [q.dashboardCompleted ?? q.is_dashboard_completed ?? q.dashboard_completed, 'is_dashboard_completed'],
+    [q.latestUpdateByRequester ?? q.latest_update_by_requester, 'latest_update_by_requester'],
   ];
 
   for (const [val, col] of boolFilters) {
@@ -139,19 +149,23 @@ export async function createExportJob(
   format: 'xlsx' | 'csv' = 'xlsx',
   selectedIds?: number[],
 ): Promise<ExportJobMeta> {
-  const diskCheck = checkAvailableDiskSpace(200_000_000);
-  if (!diskCheck.ok) {
-    throw new Error('Insufficient server disk space to initiate export process.');
-  }
-
   ensureTmpDir();
+
+  const { whereClause, params } = buildWhere(queryParams, selectedIds);
+  const totalRows = await queryCount(`SELECT COUNT(*) as total FROM reporting_tickets ${whereClause}`, params);
+
+  // Dynamic disk space pre-check based on record count
+  const requiredBytes = estimateRequiredDiskSpace(totalRows);
+  const diskCheck = checkAvailableDiskSpace(requiredBytes);
+  if (!diskCheck.ok) {
+    const freeMB = Math.round(diskCheck.freeBytes / 1_048_576);
+    const reqMB = Math.round(requiredBytes / 1_048_576);
+    throw new Error(`Insufficient server storage space to export ${totalRows.toLocaleString()} records (required: ~${reqMB}MB, available: ~${freeMB}MB). Please refine search criteria.`);
+  }
 
   const jobId = `exp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const jobDir = path.join(EXPORT_TMP_DIR, `job-${jobId}`);
   fs.mkdirSync(jobDir, { recursive: true });
-
-  const { whereClause, params } = buildWhere(queryParams, selectedIds);
-  const totalRows = await queryCount(`SELECT COUNT(*) as total FROM reporting_tickets ${whereClause}`, params);
 
   const today = new Date().toISOString().slice(0, 10);
   const zipFilename = `refly-payment-export-${today}-${jobId}.${format === 'csv' ? 'csv' : 'zip'}`;
@@ -173,7 +187,7 @@ export async function createExportJob(
   jobCache.set(jobId, meta);
   fs.writeFileSync(path.join(jobDir, 'meta.json'), JSON.stringify(meta, null, 2));
 
-  // Run background worker asynchronously (fire & forget without blocking HTTP handler)
+  // Run background worker asynchronously (fire & forget without blocking HTTP response)
   process.nextTick(() => {
     runExportWorker(jobId, jobDir, whereClause, params, format).catch((err) => {
       console.error(`[ExportJob ${jobId}] Worker Error:`, err);
@@ -306,7 +320,6 @@ async function runExportWorker(
 
       const worksheet = workbook.addWorksheet(`Claims Part ${currentPartIndex}`);
 
-      // Setup worksheet headers
       worksheet.columns = PAYMENT_TEAM_COLUMNS.map((c) => ({
         header: c.label,
         key: c.id,
@@ -364,13 +377,16 @@ async function runExportWorker(
 
     const archivePromise = new Promise<void>((resolve, reject) => {
       output.on('close', () => resolve());
+      output.on('finish', () => resolve());
+      output.on('error', (err: Error) => reject(err));
       archive.on('error', (err: Error) => reject(err));
     });
 
-    archive.pipe(output);
     for (const partPath of parts) {
       archive.file(partPath, { name: path.basename(partPath) });
     }
+
+    archive.pipe(output);
     await archive.finalize();
     await archivePromise;
 
@@ -380,8 +396,17 @@ async function runExportWorker(
     }
   }
 
-  // Complete job
+  // Verify file exists and has non-zero size before marking completed
+  if (!fs.existsSync(meta.zipFilePath!)) {
+    throw new Error('Export file generation failed (file missing).');
+  }
+
   const stats = fs.statSync(meta.zipFilePath!);
+  if (stats.size === 0) {
+    throw new Error('Generated export file is empty (0 bytes).');
+  }
+
+  // Complete job
   meta.status = 'completed';
   meta.processedRows = totalProcessed;
   meta.progressPercent = 100;
@@ -402,7 +427,7 @@ export function cleanOldExportJobs() {
   try {
     const entries = fs.readdirSync(/*turbopackIgnore: true*/ EXPORT_TMP_DIR);
     const now = Date.now();
-    const MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+    const MAX_AGE_MS = 60 * 60 * 1000; // 1 hour retention
 
     for (const entry of entries) {
       if (!entry.startsWith('job-')) continue;

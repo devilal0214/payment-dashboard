@@ -1,7 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
+import { Readable } from 'stream';
 import { requireAuth } from '@/lib/auth/session';
 import { getJobMeta } from '@/lib/export/export-job-manager';
+
+/**
+ * Converts a Node.js fs.ReadStream to a Web Standard ReadableStream
+ * without premature stream closure or destination stream errors.
+ */
+function nodeStreamToWebStream(nodeStream: fs.ReadStream): ReadableStream {
+  if (typeof Readable.toWeb === 'function') {
+    return Readable.toWeb(nodeStream) as ReadableStream;
+  }
+  return new ReadableStream({
+    start(controller) {
+      nodeStream.on('data', (chunk) => {
+        controller.enqueue(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+      });
+      nodeStream.on('end', () => {
+        controller.close();
+      });
+      nodeStream.on('error', (err) => {
+        controller.error(err);
+      });
+    },
+    cancel() {
+      nodeStream.destroy();
+    },
+  });
+}
 
 export async function GET(
   req: NextRequest,
@@ -20,16 +47,26 @@ export async function GET(
       return NextResponse.json({ error: 'Export file expired or deleted' }, { status: 410 });
     }
 
-    const fileStream = fs.createReadStream(job.zipFilePath);
-    const contentType = job.format === 'csv' ? 'text/csv' : 'application/zip';
+    const fileSize = job.fileSizeBytes || fs.statSync(job.zipFilePath).size;
+    if (fileSize === 0) {
+      return NextResponse.json({ error: 'Export file is empty' }, { status: 500 });
+    }
 
-    // Return file stream with proper download headers
-    return new NextResponse(fileStream as unknown as ReadableStream, {
+    const nodeStream = fs.createReadStream(job.zipFilePath);
+    nodeStream.on('error', (err) => {
+      console.error(`[DownloadStream ${jobId}] Error:`, err);
+    });
+
+    const webStream = nodeStreamToWebStream(nodeStream);
+    const contentType = job.format === 'csv' ? 'text/csv; charset=utf-8' : 'application/zip';
+
+    // Stream download with Web Standard ReadableStream and attachment disposition
+    return new NextResponse(webStream, {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${job.zipFilename}"`,
-        'Content-Length': String(job.fileSizeBytes || fs.statSync(job.zipFilePath).size),
-        'Cache-Control': 'private, no-cache',
+        'Content-Length': String(fileSize),
+        'Cache-Control': 'private, no-cache, no-store',
       },
     });
   } catch (err) {
