@@ -2,8 +2,8 @@
  * lib/queries/tickets.ts
  *
  * Server-side query builders for the reporting_tickets table.
- * ALL filtering, sorting, and pagination happens in SQL.
- * All user values are passed as prepared statement parameters.
+ * ALL filtering, sorting, and pagination happens in SQL using prepared statements.
+ * Authoritative production database schema mapping.
  */
 import { query, queryCount } from '@/lib/db/pool';
 import type { TicketListQuery } from '@/lib/validation/tickets.schema';
@@ -13,7 +13,7 @@ import { SORT_COLUMN_MAP } from '@/lib/validation/tickets.schema';
 const LIST_COLUMNS = [
   'id',
   'ticket_id',
-  'post_id',
+  'external_id',
   'claim_number',
   'claim_status',
   'ticket_status',
@@ -24,40 +24,55 @@ const LIST_COLUMNS = [
   'address',
   'airline',
   'airline_country',
-  'flight_number',
-  'scheduled_date',
+  'airline_rejection_reason',
+  'assignment_form',
+  'boarding_pass',
+  'passport',
+  'signature',
+  'booking_reference_number',
+  'call_status',
+  'claim_acceptance_date',
+  'closure_reason',
+  'compensation_amount',
+  'amount_received',
+  'dashboard_status',
   'departure_airport',
   'departure_airport_iata',
   'departure_country',
   'destination_airport',
   'destination_airport_iata',
   'destination_country',
-  'compensation_amount',
-  'amount_received',
-  'need_payment_details',
-  'need_resign',
-  'dashboard_status',
-  'is_dashboard_completed',
-  'source',
-  'assignee',
-  'requester',
-  'requested_date',
-  'updated_at',
-  'synced_at',
-  'money_received_date',
-  'claim_acceptance_date',
-  'solved_date',
-  'jurisdiction_1st',
-  'jurisdiction_2nd',
-  'booking_reference_number',
-  'call_status',
-  'closure_reason',
   'disruption',
+  'fbclid',
+  'gclid',
+  'flight_number',
+  'is_dashboard_completed',
+  'latest_update',
+  'latest_update_by_requester',
   'legal_fee_to_be_charged',
+  'missing_documents',
+  'money_received_date',
+  'original_claim_language',
+  'payment_info',
+  'preferred_language',
+  'problem_reason',
+  'refly_rejection_reasons',
+  'requester',
+  'scheduled_date',
+  'solved_date',
+  'source',
+  'step_link',
   'total_passengers_number',
   'where_did_you_hear_about_refly',
   'complete_route',
-  'dashboard_link',
+  'assignee',
+  'requested_date',
+  'updated_at',
+  'synced_at',
+  'first_jurisdiction',
+  'second_jurisdiction',
+  'NULL AS tags',
+  "CONCAT_WS(' / ', NULLIF(utm_source,''), NULLIF(utm_medium,''), NULLIF(utm_campaign,''), NULLIF(utm_content,''), NULLIF(utm_id,'')) AS utm",
 ].join(', ');
 
 // ─── Detail columns (full, including JSON) ─────────────────────────────────────
@@ -80,7 +95,7 @@ function buildWhere(q: Partial<TicketListQuery> & Record<string, unknown>): Wher
     conditions.push(`(
       claim_number LIKE ? OR
       ticket_id LIKE ? OR
-      post_id LIKE ? OR
+      external_id LIKE ? OR
       first_name LIKE ? OR
       last_name LIKE ? OR
       email LIKE ? OR
@@ -98,7 +113,7 @@ function buildWhere(q: Partial<TicketListQuery> & Record<string, unknown>): Wher
   const stringFilters: Array<[unknown, string]> = [
     [q.claimNumber ?? q.claim_number, 'claim_number'],
     [q.ticketId ?? q.ticket_id, 'ticket_id'],
-    [q.postId ?? q.post_id, 'post_id'],
+    [q.externalId ?? q.external_id ?? q.postId ?? q.post_id, 'external_id'],
     [q.firstName ?? q.first_name, 'first_name'],
     [q.lastName ?? q.last_name, 'last_name'],
     [q.email, 'email'],
@@ -132,6 +147,7 @@ function buildWhere(q: Partial<TicketListQuery> & Record<string, unknown>): Wher
     [q.whatsappNotification ?? q.whatsapp_notification, 'whatsapp_notification'],
     [q.multiplePassengers ?? q.multiple_passengers, 'multiple_passengers'],
     [q.acceptanceDateMandatory ?? q.acceptance_date_mandatory, 'acceptance_date_mandatory'],
+    [q.latestUpdateByRequester ?? q.latest_update_by_requester, 'latest_update_by_requester'],
   ];
 
   for (const [val, col] of boolFilters) {
@@ -191,7 +207,7 @@ function buildOrderBy(sortBy?: string, sortDir?: string): string {
 export interface TicketRow {
   id: number;
   ticket_id: string;
-  post_id: string;
+  external_id: string;
   claim_number: string;
   claim_status: string;
   ticket_status: string;
@@ -225,8 +241,8 @@ export interface TicketRow {
   money_received_date?: string;
   claim_acceptance_date?: string;
   solved_date?: string;
-  jurisdiction_1st?: string;
-  jurisdiction_2nd?: string;
+  first_jurisdiction?: string;
+  second_jurisdiction?: string;
   booking_reference_number?: string;
   call_status?: string;
   closure_reason?: string;
@@ -235,7 +251,10 @@ export interface TicketRow {
   total_passengers_number?: number;
   where_did_you_hear_about_refly?: string;
   complete_route?: string;
-  dashboard_link?: string;
+  step_link?: string;
+  tags?: string | null;
+  utm?: string;
+  latest_update_by_requester?: number;
 }
 
 export interface PaginatedTickets {

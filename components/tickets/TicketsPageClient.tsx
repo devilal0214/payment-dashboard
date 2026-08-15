@@ -265,7 +265,7 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
   }
 
   const FILTER_KEYS = [
-    'search','claimNumber','claim_number','ticketId','ticket_id','postId','post_id',
+    'search','claimNumber','claim_number','ticketId','ticket_id','externalId','external_id','postId','post_id',
     'firstName','first_name','lastName','last_name','email','requester','assignee',
     'claimStatus','claim_status','ticketStatus','ticket_status','dashboardStatus','dashboard_status',
     'airline','flightNumber','flight_number','departureCountry','departure_country',
@@ -274,6 +274,7 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
     'needPaymentDetails','need_payment_details','needResign','need_resign',
     'dashboardCompleted','is_dashboard_completed','whatsappNotification','whatsapp_notification',
     'multiplePassengers','multiple_passengers','acceptanceDateMandatory','acceptance_date_mandatory',
+    'latestUpdateByRequester','latest_update_by_requester',
     'requestedDateFrom','requestedDateTo','solvedDateFrom','solvedDateTo',
     'scheduledDateFrom','scheduledDateTo','claimAcceptanceDateFrom','claimAcceptanceDateTo',
     'moneyReceivedDateFrom','moneyReceivedDateTo','compensationMin','compensationMax',

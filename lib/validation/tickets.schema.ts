@@ -12,12 +12,12 @@ export const SORT_COLUMN_MAP: Record<string, string> = {
   id: 'id',
   ticket_id: 'ticket_id',
   ticketId: 'ticket_id',
-  post_id: 'post_id',
-  postId: 'post_id',
+  external_id: 'external_id',
+  externalId: 'external_id',
+  post_id: 'external_id',
+  postId: 'external_id',
   claim_number: 'claim_number',
   claimNumber: 'claim_number',
-  external_id: 'post_id',
-  externalId: 'post_id',
 
   // Statuses
   ticket_status: 'ticket_status',
@@ -81,7 +81,7 @@ export const SORT_COLUMN_MAP: Record<string, string> = {
   total_passengers_number: 'total_passengers_number',
   totalPassengersNumber: 'total_passengers_number',
 
-  // Dates
+  // Dates & Flags
   requested_date: 'requested_date',
   requestedDate: 'requested_date',
   scheduled_date: 'scheduled_date',
@@ -98,17 +98,24 @@ export const SORT_COLUMN_MAP: Record<string, string> = {
   syncedAt: 'synced_at',
   latest_update: 'latest_update',
   latestUpdate: 'latest_update',
+  latest_update_by_requester: 'latest_update_by_requester',
+  latestUpdateByRequester: 'latest_update_by_requester',
 
   // Metadata & Jurisdictions
   source: 'source',
-  jurisdiction_1st: 'jurisdiction_1st',
-  jurisdiction1st: 'jurisdiction_1st',
-  jurisdiction_2nd: 'jurisdiction_2nd',
-  jurisdiction2nd: 'jurisdiction_2nd',
+  first_jurisdiction: 'first_jurisdiction',
+  firstJurisdiction: 'first_jurisdiction',
+  jurisdiction_1st: 'first_jurisdiction',
+  second_jurisdiction: 'second_jurisdiction',
+  secondJurisdiction: 'second_jurisdiction',
+  jurisdiction_2nd: 'second_jurisdiction',
   closure_reason: 'closure_reason',
   closureReason: 'closure_reason',
   airline_rejection_reason: 'airline_rejection_reason',
   airlineRejectionReason: 'airline_rejection_reason',
+  step_link: 'step_link',
+  stepLink: 'step_link',
+  dashboard_link: 'step_link',
   where_did_you_hear_about_refly: 'where_did_you_hear_about_refly',
   whereDidYouHearAboutRefly: 'where_did_you_hear_about_refly',
 };
@@ -163,6 +170,8 @@ export const ticketListQuerySchema = z.object({
   claim_number: z.string().max(100).optional(),
   ticketId: z.string().max(50).optional(),
   ticket_id: z.string().max(50).optional(),
+  externalId: z.string().max(50).optional(),
+  external_id: z.string().max(50).optional(),
   postId: z.string().max(50).optional(),
   post_id: z.string().max(50).optional(),
   firstName: z.string().max(100).optional(),
@@ -206,6 +215,8 @@ export const ticketListQuerySchema = z.object({
   multiple_passengers: booleanQueryParam,
   acceptanceDateMandatory: booleanQueryParam,
   acceptance_date_mandatory: booleanQueryParam,
+  latestUpdateByRequester: booleanQueryParam,
+  latest_update_by_requester: booleanQueryParam,
 
   // Date range filters
   requestedDateFrom: dateParam,

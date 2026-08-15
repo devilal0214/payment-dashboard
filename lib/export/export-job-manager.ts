@@ -228,11 +228,15 @@ async function runExportWorker(
   jobCache.set(jobId, meta);
 
   // Build column select query
-  const selectCols = PAYMENT_TEAM_COLUMNS.map((c) =>
-    c.dbCol.includes('(') || c.dbCol.includes(' ')
-      ? `${c.dbCol} AS \`${c.id}\``
-      : `\`${c.dbCol}\` AS \`${c.id}\``
-  ).join(', ');
+  const selectCols = PAYMENT_TEAM_COLUMNS.map((c) => {
+    if (c.dbCol.toUpperCase().includes(' AS ')) {
+      return c.dbCol;
+    }
+    if (c.dbCol.includes('(') || c.dbCol.includes(' ')) {
+      return `${c.dbCol} AS \`${c.id}\``;
+    }
+    return `\`${c.dbCol}\` AS \`${c.id}\``;
+  }).join(', ');
 
   let lastSeenId = 0;
   let totalProcessed = 0;
