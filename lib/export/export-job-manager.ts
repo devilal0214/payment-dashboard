@@ -2,6 +2,7 @@
  * lib/export/export-job-manager.ts
  *
  * Server-side Background Export Job Manager for 1.8M+ rows.
+ * Includes granular stage tracking and structured server logging.
  *
  * KEY GUARANTEES:
  * 1. Keyset pagination (WHERE id > ? ORDER BY id ASC LIMIT 5000) — NO slow OFFSET.
@@ -20,6 +21,7 @@ import * as archiver from 'archiver';
 import ExcelJS from 'exceljs';
 import { query, queryCount } from '@/lib/db/pool';
 import type { TicketListQuery } from '@/lib/validation/tickets.schema';
+import { logExportEvent, type ExportStage } from './export-logger';
 
 import { PAYMENT_TEAM_COLUMNS, type ColumnSpec } from './columns';
 export type { ColumnSpec };
@@ -35,6 +37,7 @@ export interface ExportJobMeta {
   userId: string;
   format: 'xlsx' | 'csv';
   status: 'queued' | 'processing' | 'completed' | 'failed';
+  stage: ExportStage;
   processedRows: number;
   totalRows: number;
   progressPercent: number;
@@ -152,7 +155,11 @@ export async function createExportJob(
   ensureTmpDir();
 
   const { whereClause, params } = buildWhere(queryParams, selectedIds);
+
+  const dbStart = Date.now();
+  logExportEvent({ jobId: 'init', stage: 'db_query', status: 'start' });
   const totalRows = await queryCount(`SELECT COUNT(*) as total FROM reporting_tickets ${whereClause}`, params);
+  logExportEvent({ jobId: 'init', stage: 'db_query', status: 'success', durationMs: Date.now() - dbStart, rows: totalRows });
 
   // Dynamic disk space pre-check based on record count
   const requiredBytes = estimateRequiredDiskSpace(totalRows);
@@ -160,7 +167,9 @@ export async function createExportJob(
   if (!diskCheck.ok) {
     const freeMB = Math.round(diskCheck.freeBytes / 1_048_576);
     const reqMB = Math.round(requiredBytes / 1_048_576);
-    throw new Error(`Insufficient server storage space to export ${totalRows.toLocaleString()} records (required: ~${reqMB}MB, available: ~${freeMB}MB). Please refine search criteria.`);
+    const err = `Insufficient server storage space to export ${totalRows.toLocaleString()} records (required: ~${reqMB}MB, available: ~${freeMB}MB). Please refine search criteria.`;
+    logExportEvent({ jobId: 'init', stage: 'init', status: 'failed', error: err });
+    throw new Error(err);
   }
 
   const jobId = `exp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -176,6 +185,7 @@ export async function createExportJob(
     userId,
     format,
     status: 'queued',
+    stage: 'init',
     processedRows: 0,
     totalRows,
     progressPercent: 0,
@@ -187,14 +197,17 @@ export async function createExportJob(
   jobCache.set(jobId, meta);
   fs.writeFileSync(path.join(jobDir, 'meta.json'), JSON.stringify(meta, null, 2));
 
+  logExportEvent({ jobId, stage: 'init', status: 'success', rows: totalRows });
+
   // Run background worker asynchronously (fire & forget without blocking HTTP response)
   process.nextTick(() => {
     runExportWorker(jobId, jobDir, whereClause, params, format).catch((err) => {
-      console.error(`[ExportJob ${jobId}] Worker Error:`, err);
+      const errMsg = err instanceof Error ? err.message : 'Export background processing failed';
+      logExportEvent({ jobId, stage: meta.stage || 'xlsx', status: 'failed', error: errMsg });
       const j = jobCache.get(jobId);
       if (j) {
         j.status = 'failed';
-        j.error = err instanceof Error ? err.message : 'Export background processing failed';
+        j.error = errMsg;
         jobCache.set(jobId, j);
         try {
           fs.writeFileSync(path.join(jobDir, 'meta.json'), JSON.stringify(j, null, 2));
@@ -239,7 +252,10 @@ async function runExportWorker(
   if (!meta) return;
 
   meta.status = 'processing';
+  meta.stage = format === 'csv' ? 'xlsx' : 'xlsx';
   jobCache.set(jobId, meta);
+
+  logExportEvent({ jobId, stage: 'xlsx', status: 'start' });
 
   // Build column select query
   const selectCols = PAYMENT_TEAM_COLUMNS.map((c) => {
@@ -255,6 +271,7 @@ async function runExportWorker(
   let lastSeenId = 0;
   let totalProcessed = 0;
   const parts: string[] = [];
+  const xlsxStart = Date.now();
 
   if (format === 'csv') {
     // Single streaming CSV output
@@ -371,7 +388,14 @@ async function runExportWorker(
       currentPartIndex++;
     }
 
+    logExportEvent({ jobId, stage: 'xlsx', status: 'success', durationMs: Date.now() - xlsxStart, rows: totalProcessed });
+
     // Compress all XLSX parts into ZIP file using archiver
+    meta.stage = 'zip';
+    jobCache.set(jobId, meta);
+    logExportEvent({ jobId, stage: 'zip', status: 'start' });
+
+    const zipStart = Date.now();
     const output = fs.createWriteStream(meta.zipFilePath!);
     const archive = (typeof archiver === 'function' ? archiver : (archiver as any).default)('zip', { zlib: { level: 6 } });
 
@@ -394,6 +418,8 @@ async function runExportWorker(
     for (const partPath of parts) {
       try { fs.unlinkSync(partPath); } catch { /* ignore */ }
     }
+
+    logExportEvent({ jobId, stage: 'zip', status: 'success', durationMs: Date.now() - zipStart });
   }
 
   // Verify file exists and has non-zero size before marking completed
@@ -408,6 +434,7 @@ async function runExportWorker(
 
   // Complete job
   meta.status = 'completed';
+  meta.stage = 'completed' as any;
   meta.processedRows = totalProcessed;
   meta.progressPercent = 100;
   meta.completedAt = new Date().toISOString();
@@ -415,6 +442,8 @@ async function runExportWorker(
   jobCache.set(jobId, meta);
 
   fs.writeFileSync(path.join(jobDir, 'meta.json'), JSON.stringify(meta, null, 2));
+
+  logExportEvent({ jobId, stage: 'completed' as any, status: 'success', sizeBytes: stats.size, rows: totalProcessed });
 
   // Trigger background cleanup sweep of old jobs (> 60 min old)
   cleanOldExportJobs();

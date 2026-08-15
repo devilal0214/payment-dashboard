@@ -61,6 +61,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
       userId: '',
       format,
       status: 'queued',
+      stage: 'init',
       processedRows: 0,
       totalRows: 0,
       progressPercent: 0,
@@ -311,8 +312,17 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
             )}
 
             {activeJob.status === 'failed' && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700 font-mono">
-                ✖ Export failed: {activeJob.error || startError || 'Export process could not complete. Please try again.'}
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 font-mono space-y-1">
+                <div className="font-bold flex items-center justify-between">
+                  <span>✖ Export Failed</span>
+                  <span className="text-[10px] text-rose-600 uppercase">Stage: {activeJob.stage || 'unknown'}</span>
+                </div>
+                <p className="text-[11px] text-rose-700">
+                  {activeJob.error || startError || 'Export process could not complete.'}
+                </p>
+                <div className="text-[10px] text-rose-500 pt-1 border-t border-rose-200/50">
+                  Job ID: {activeJob.jobId}
+                </div>
               </div>
             )}
           </div>

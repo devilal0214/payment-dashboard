@@ -8,11 +8,15 @@ export async function GET(
 ) {
   try {
     const user = await requireAuth();
-    const { jobId } = await params;
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
+    const { jobId } = await params;
     const job = getJobMeta(jobId, user.username);
+
     if (!job) {
-      return NextResponse.json({ error: 'Export job not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Export job not found or access denied', jobId }, { status: 404 });
     }
 
     return NextResponse.json(job, {
