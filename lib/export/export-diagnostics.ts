@@ -7,9 +7,9 @@
 
 import fs from 'fs';
 import path from 'path';
-import * as archiver from 'archiver';
 import ExcelJS from 'exceljs';
 import { queryCount } from '@/lib/db/pool';
+import { createZipArchive } from './zip-helper';
 
 const EXPORT_TMP_DIR = process.env.EXPORT_TMP_DIR || path.join(process.cwd(), 'tmp', 'exports');
 
@@ -101,9 +101,9 @@ export async function runExportHealthCheck(): Promise<ExportHealthStatus> {
     health.status = 'error';
   }
 
-  // 4. Test ZIP
+  // 4. Test ZIP using safe helper
   try {
-    const archive = (typeof archiver === 'function' ? archiver : (archiver as any).default)('zip', { zlib: { level: 1 } });
+    const archive = createZipArchive({ zlib: { level: 1 } });
     if (!archive) throw new Error('Archiver initialization failed');
   } catch {
     health.zip = 'error';
@@ -180,11 +180,11 @@ export async function runExportDiagnostic(): Promise<ExportDiagnosticReport> {
       report.xlsx.error = err instanceof Error ? err.message : 'XLSX stream generation failed';
     }
 
-    // 4. ZIP Archive Check
+    // 4. ZIP Archive Check using safe helper
     const zipPath = path.join(diagDir, 'test.zip');
     try {
       const output = fs.createWriteStream(zipPath);
-      const archive = (typeof archiver === 'function' ? archiver : (archiver as any).default)('zip', { zlib: { level: 6 } });
+      const archive = createZipArchive({ zlib: { level: 6 } });
 
       const zipPromise = new Promise<void>((resolve, reject) => {
         output.on('close', () => resolve());

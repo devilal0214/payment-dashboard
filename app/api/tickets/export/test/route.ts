@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import * as archiver from 'archiver';
 import ExcelJS from 'exceljs';
 import { requireAuth } from '@/lib/auth/session';
 import { query } from '@/lib/db/pool';
 import { PAYMENT_TEAM_COLUMNS } from '@/lib/export/columns';
+import { createZipArchive } from '@/lib/export/zip-helper';
 
 const EXPORT_TMP_DIR = process.env.EXPORT_TMP_DIR || path.join(process.cwd(), 'tmp', 'exports');
 
@@ -62,11 +62,11 @@ export async function POST(req: NextRequest) {
     const xlsxDuration = Date.now() - xlsxStart;
     const xlsxBytes = fs.existsSync(xlsxPath) ? fs.statSync(xlsxPath).size : 0;
 
-    // 3. Create ZIP archive
+    // 3. Create ZIP archive using safe factory
     const zipStart = Date.now();
     const zipPath = path.join(testDir, 'test-export.zip');
     const output = fs.createWriteStream(zipPath);
-    const archive = (typeof archiver === 'function' ? archiver : (archiver as any).default)('zip', { zlib: { level: 6 } });
+    const archive = createZipArchive({ zlib: { level: 6 } });
 
     const zipPromise = new Promise<void>((resolve, reject) => {
       output.on('close', () => resolve());

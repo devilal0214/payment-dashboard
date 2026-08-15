@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import * as archiver from 'archiver';
 import { Readable } from 'stream';
 import { requireAuth } from '@/lib/auth/session';
+import { createZipArchive } from '@/lib/export/zip-helper';
 
 const EXPORT_TMP_DIR = process.env.EXPORT_TMP_DIR || path.join(process.cwd(), 'tmp', 'exports');
 
@@ -33,13 +33,13 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!fs.existsSync(EXPORT_TMP_DIR)) {
-      fs.mkdirSync(EXPORT_TMP_DIR, { recursive: true });
+    if (!fs.existsSync(/*turbopackIgnore: true*/ EXPORT_TMP_DIR)) {
+      fs.mkdirSync(/*turbopackIgnore: true*/ EXPORT_TMP_DIR, { recursive: true });
     }
 
-    // Generate a tiny valid 1KB test ZIP
+    // Generate a tiny valid 1KB test ZIP using safe factory
     const output = fs.createWriteStream(testZipPath);
-    const archive = (typeof archiver === 'function' ? archiver : (archiver as any).default)('zip', { zlib: { level: 1 } });
+    const archive = createZipArchive({ zlib: { level: 1 } });
 
     const zipPromise = new Promise<void>((resolve, reject) => {
       output.on('close', () => resolve());

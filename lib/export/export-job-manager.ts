@@ -17,11 +17,11 @@
 
 import fs from 'fs';
 import path from 'path';
-import * as archiver from 'archiver';
 import ExcelJS from 'exceljs';
 import { query, queryCount } from '@/lib/db/pool';
 import type { TicketListQuery } from '@/lib/validation/tickets.schema';
 import { logExportEvent, type ExportStage } from './export-logger';
+import { createZipArchive } from './zip-helper';
 
 import { PAYMENT_TEAM_COLUMNS, type ColumnSpec } from './columns';
 export type { ColumnSpec };
@@ -397,7 +397,7 @@ async function runExportWorker(
 
     const zipStart = Date.now();
     const output = fs.createWriteStream(meta.zipFilePath!);
-    const archive = (typeof archiver === 'function' ? archiver : (archiver as any).default)('zip', { zlib: { level: 6 } });
+    const archive = createZipArchive({ zlib: { level: 6 } });
 
     const archivePromise = new Promise<void>((resolve, reject) => {
       output.on('close', () => resolve());
