@@ -1,12 +1,63 @@
 'use client';
 
-import { useState, useRef, useEffect, SyntheticEvent } from 'react';
+import React, { useState, useRef, useEffect, SyntheticEvent, Component, ReactNode } from 'react';
 import type { ReadonlyURLSearchParams } from 'next/navigation';
 import type { ExportJobMeta } from '@/lib/export/export-job-manager';
 
 interface ExportMenuProps {
   searchParams: ReadonlyURLSearchParams;
   selectedIds: number[];
+}
+
+// Local React Error Boundary to catch render exceptions inside export modal
+// preventing errors from bubbling to Next.js Root Error Boundary ("This page couldn't load")
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  onReset: () => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error?: string;
+}
+
+class ExportErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error: error.message || 'Render error inside export modal' };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[ExportModal Boundary Error]:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 space-y-2">
+          <div className="font-bold flex items-center justify-between">
+            <span>✖ Export Render Error</span>
+            <button
+              type="button"
+              onClick={() => {
+                this.setState({ hasError: false });
+                this.props.onReset();
+              }}
+              className="text-[10px] text-rose-600 underline"
+            >
+              Close
+            </button>
+          </div>
+          <p>{this.state.error}</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProps) {
@@ -26,27 +77,58 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Poll active export job progress
+  // Poll active export job progress via pure client fetch()
   useEffect(() => {
-    if (!activeJob || activeJob.status === 'completed' || activeJob.status === 'failed') {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    if (!activeJob || !activeJob.jobId || activeJob.jobId.startsWith('prep') || activeJob.status === 'completed' || activeJob.status === 'failed') {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
       return;
     }
 
+    const currentJobId = activeJob.jobId;
+
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`/api/tickets/export/jobs/${activeJob.jobId}`);
+        const res = await fetch(`/api/tickets/export/jobs/${currentJobId}`, {
+          method: 'GET',
+          headers: { 'Cache-Control': 'no-store' },
+          credentials: 'include',
+        });
+
         if (res.ok) {
           const updated: ExportJobMeta = await res.json();
           setActiveJob(updated);
+
+          if (updated.status === 'completed' || updated.status === 'failed') {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+          }
+        } else {
+          // Handle 4xx / 5xx polling errors gracefully without throwing
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error || `HTTP ${res.status} checking export status`;
+          setActiveJob((prev) => prev ? { ...prev, status: 'failed', error: errMsg } : null);
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
         }
-      } catch { /* ignore poll network glitches */ }
+      } catch {
+        /* ignore transient network glitches */
+      }
     }, 1500);
 
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     };
-  }, [activeJob]);
+  }, [activeJob?.jobId, activeJob?.status]);
 
   async function startExport(format: 'xlsx' | 'csv', useSelectedOnly = false, e?: SyntheticEvent) {
     if (e) {
@@ -59,19 +141,6 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
     setOpen(false);
     setModalOpen(true);
 
-    // Immediate placeholder status before waiting for HTTP response
-    setActiveJob({
-      jobId: 'preparing...',
-      userId: '',
-      format,
-      status: 'queued',
-      stage: 'init',
-      processedRows: 0,
-      totalRows: 0,
-      progressPercent: 0,
-      createdAt: new Date().toISOString(),
-    });
-
     const filters: Record<string, string> = {};
     searchParams.forEach((val, key) => {
       if (!['page', 'pageSize', 'sortBy', 'sortDir'].includes(key)) {
@@ -83,6 +152,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
       const res = await fetch('/api/tickets/export/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           format,
           filters,
@@ -92,20 +162,30 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to initiate export process');
+        throw new Error(data.error || `Failed to initiate export (HTTP ${res.status})`);
       }
 
       setActiveJob(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start export';
       setStartError(msg);
-      setActiveJob((prev) => prev ? { ...prev, status: 'failed', error: msg } : null);
+      setActiveJob({
+        jobId: 'failed',
+        userId: '',
+        format,
+        status: 'failed',
+        stage: 'init',
+        processedRows: 0,
+        totalRows: 0,
+        progressPercent: 0,
+        error: msg,
+        createdAt: new Date().toISOString(),
+      });
     } finally {
       setStarting(false);
     }
   }
 
-  // Safe file download trigger without top-level document replacement
   function downloadExportFile(url: string, filename?: string, e?: SyntheticEvent) {
     if (e) {
       e.preventDefault();
@@ -123,13 +203,21 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
   }
 
   function formatBytes(bytes?: number): string {
-    if (!bytes) return '';
+    if (typeof bytes !== 'number' || isNaN(bytes) || bytes <= 0) return '';
     if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
     return `${(bytes / 1024).toFixed(0)} KB`;
   }
 
-  const currentPart = activeJob?.currentPart || (activeJob?.processedRows ? Math.max(1, Math.ceil(activeJob.processedRows / 25000)) : 1);
-  const totalParts = activeJob?.totalParts || (activeJob?.totalRows ? Math.max(1, Math.ceil(activeJob.totalRows / 25000)) : 1);
+  // Ultra-safe numeric fallbacks to prevent React render exceptions
+  const processedRows = (typeof activeJob?.processedRows === 'number' && !isNaN(activeJob.processedRows)) ? activeJob.processedRows : 0;
+  const totalRows = (typeof activeJob?.totalRows === 'number' && !isNaN(activeJob.totalRows)) ? activeJob.totalRows : 0;
+  const progressPercent = (typeof activeJob?.progressPercent === 'number' && !isNaN(activeJob.progressPercent)) ? Math.min(Math.max(activeJob.progressPercent, 0), 100) : 0;
+  const currentPart = (typeof activeJob?.currentPart === 'number' && !isNaN(activeJob.currentPart) && activeJob.currentPart > 0)
+    ? activeJob.currentPart
+    : Math.max(1, Math.ceil(processedRows / 25000));
+  const totalParts = (typeof activeJob?.totalParts === 'number' && !isNaN(activeJob.totalParts) && activeJob.totalParts > 0)
+    ? activeJob.totalParts
+    : Math.max(1, Math.ceil(totalRows / 25000));
 
   return (
     <>
@@ -137,7 +225,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
         <button
           type="button"
           id="export-menu-toggle"
-          onClick={(e) => { e.preventDefault(); setOpen((v) => !v); }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((v) => !v); }}
           disabled={starting}
           className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 text-white rounded-md
                      text-xs font-semibold hover:bg-zinc-800 transition-colors shadow-subtle disabled:opacity-50"
@@ -228,7 +316,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                   <div className="my-1 border-t border-zinc-100" />
                   <button
                     type="button"
-                    onClick={(e) => { e.preventDefault(); setModalOpen(true); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setModalOpen(true); }}
                     className="w-full text-center px-3 py-1.5 text-xs font-mono font-semibold text-zinc-900 bg-zinc-100 hover:bg-zinc-200 rounded transition-colors"
                   >
                     View Active Export Progress →
@@ -240,9 +328,9 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
         )}
       </div>
 
-      {/* Export Progress & Download Modal */}
-      {modalOpen && activeJob && (
-        <>
+      {/* Export Progress & Download Modal wrapped in local Error Boundary */}
+      {modalOpen && (
+        <ExportErrorBoundary onReset={() => setModalOpen(false)}>
           <div className="drawer-overlay" onClick={() => setModalOpen(false)} />
           <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[460px] max-w-[92vw] bg-white border border-zinc-200 rounded-lg shadow-dropdown z-50 p-6 space-y-4 animate-fade-in select-none">
             <div className="flex items-start justify-between">
@@ -250,16 +338,16 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                 <div className="flex items-center gap-2">
                   <h3 className="text-base font-bold text-zinc-950">Exporting Payment Report</h3>
                   <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
-                    activeJob.status === 'completed'
+                    activeJob?.status === 'completed'
                       ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                      : activeJob.status === 'failed'
+                      : activeJob?.status === 'failed'
                       ? 'bg-rose-100 text-rose-800 border border-rose-200'
                       : 'bg-blue-100 text-blue-800 border border-blue-200 animate-pulse'
                   }`}>
-                    {activeJob.status}
+                    {activeJob?.status || 'preparing'}
                   </span>
                 </div>
-                <p className="text-xs text-zinc-500 font-mono mt-0.5">Job ID: {activeJob.jobId}</p>
+                <p className="text-xs text-zinc-500 font-mono mt-0.5">Job ID: {activeJob?.jobId || 'preparing...'}</p>
               </div>
               <button type="button" onClick={() => setModalOpen(false)} className="text-zinc-400 hover:text-zinc-950 font-mono text-sm">
                 ✕
@@ -270,22 +358,22 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-mono">
                 <span className="text-zinc-600">
-                  Processed: <strong className="text-zinc-950">{activeJob.processedRows.toLocaleString()}</strong> / {activeJob.totalRows ? activeJob.totalRows.toLocaleString() : '—'}
+                  Processed: <strong className="text-zinc-950">{processedRows.toLocaleString()}</strong> / {totalRows ? totalRows.toLocaleString() : '—'}
                 </span>
-                <span className="font-bold text-zinc-950">{activeJob.progressPercent}%</span>
+                <span className="font-bold text-zinc-950">{progressPercent}%</span>
               </div>
               <div className="w-full h-3 bg-zinc-100 rounded-full overflow-hidden border border-zinc-200">
                 <div
-                  style={{ width: `${activeJob.progressPercent}%` }}
+                  style={{ width: `${progressPercent}%` }}
                   className={`h-full transition-all duration-300 rounded-full ${
-                    activeJob.status === 'completed' ? 'bg-emerald-600' : 'bg-zinc-900'
+                    activeJob?.status === 'completed' ? 'bg-emerald-600' : 'bg-zinc-900'
                   }`}
                 />
               </div>
             </div>
 
             {/* Status Messages */}
-            {activeJob.status === 'queued' && (
+            {(!activeJob || activeJob.status === 'queued') && (
               <div className="p-3 bg-zinc-50 border border-zinc-200 rounded text-xs text-zinc-600 font-mono flex items-center gap-2">
                 <svg className="animate-spin w-4 h-4 text-zinc-900 shrink-0" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -295,7 +383,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
               </div>
             )}
 
-            {activeJob.status === 'processing' && (
+            {activeJob?.status === 'processing' && (
               <div className="p-3 bg-zinc-50 border border-zinc-200 rounded text-xs text-zinc-600 font-mono flex items-center gap-2">
                 <svg className="animate-spin w-4 h-4 text-zinc-900 shrink-0" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -307,7 +395,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
               </div>
             )}
 
-            {activeJob.status === 'completed' && (
+            {activeJob?.status === 'completed' && (
               <div className="space-y-3">
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-900 font-mono">
                   ✓ Export completed successfully! File is ready for download.
@@ -331,7 +419,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
               </div>
             )}
 
-            {activeJob.status === 'failed' && (
+            {activeJob?.status === 'failed' && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800 font-mono space-y-1">
                 <div className="font-bold flex items-center justify-between">
                   <span>✖ Export Failed</span>
@@ -346,7 +434,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
               </div>
             )}
           </div>
-        </>
+        </ExportErrorBoundary>
       )}
     </>
   );
