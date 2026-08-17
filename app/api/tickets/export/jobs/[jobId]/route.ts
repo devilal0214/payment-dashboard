@@ -13,7 +13,7 @@ export async function GET(
     }
 
     const { jobId } = await params;
-    const job = getJobMeta(jobId, user.username);
+    const job = await getJobMeta(jobId, user.username);
 
     if (!job) {
       return NextResponse.json({ error: 'Export job not found or access denied', jobId }, { status: 404 });

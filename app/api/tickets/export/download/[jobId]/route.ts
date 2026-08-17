@@ -38,7 +38,7 @@ export async function GET(
     const user = await requireAuth();
     const { jobId } = await params;
 
-    const job = getJobMeta(jobId, user.username);
+    const job = await getJobMeta(jobId, user.username);
     if (!job || job.status !== 'completed' || !job.zipFilePath) {
       return NextResponse.json({ error: 'Export file not ready or not found' }, { status: 404 });
     }
