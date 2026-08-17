@@ -2,7 +2,7 @@
  * lib/db/export-jobs-db.ts
  *
  * Persistent Database Storage for Export Jobs in zendesk_reporting.
- * Ensures job status, progress, and stage persist across process restarts.
+ * Snapshot Isolation with max_id boundary to guarantee processedRows == total_rows.
  */
 
 import { query, queryOne } from '@/lib/db/pool';
@@ -17,6 +17,7 @@ export interface DbExportJob {
   processed_rows: number;
   current_part: number;
   total_parts: number;
+  max_id: number | null;
   output_path: string | null;
   file_size_bytes: number | null;
   error_message: string | null;
@@ -42,6 +43,7 @@ export async function ensureExportJobsTable(): Promise<void> {
       processed_rows INT NOT NULL DEFAULT 0,
       current_part INT NOT NULL DEFAULT 0,
       total_parts INT NOT NULL DEFAULT 0,
+      max_id BIGINT NULL,
       output_path VARCHAR(255) NULL,
       file_size_bytes BIGINT NULL,
       error_message TEXT NULL,
@@ -56,6 +58,10 @@ export async function ensureExportJobsTable(): Promise<void> {
   `;
   try {
     await query(sql);
+    // Add max_id column defensively if table already existed without it
+    try {
+      await query('ALTER TABLE export_jobs ADD COLUMN max_id BIGINT NULL');
+    } catch { /* column already exists */ }
     tableInitialized = true;
   } catch (err) {
     console.error('[ExportJobsDB] Table init warning:', err);
@@ -68,6 +74,7 @@ export async function dbCreateJob(job: {
   format: 'xlsx' | 'csv';
   totalRows: number;
   totalParts: number;
+  maxId: number;
   zipFilePath: string;
   filtersJson: string;
 }): Promise<DbExportJob> {
@@ -75,8 +82,8 @@ export async function dbCreateJob(job: {
   const sql = `
     INSERT INTO export_jobs (
       job_id, user_id, status, stage, format, total_rows, processed_rows,
-      current_part, total_parts, output_path, filters_json, created_at
-    ) VALUES (?, ?, 'queued', 'init', ?, ?, 0, 0, ?, ?, ?, NOW())
+      current_part, total_parts, max_id, output_path, filters_json, created_at
+    ) VALUES (?, ?, 'queued', 'init', ?, ?, 0, 0, ?, ?, ?, ?, NOW())
   `;
   await query(sql, [
     job.jobId,
@@ -84,6 +91,7 @@ export async function dbCreateJob(job: {
     job.format,
     job.totalRows,
     job.totalParts,
+    job.maxId,
     job.zipFilePath,
     job.filtersJson,
   ]);

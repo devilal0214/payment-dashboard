@@ -4,7 +4,7 @@
  * Dedicated Export Worker Daemon process.
  * Orchestrates multi-part 25,000-row export jobs using OS process isolation (child_process).
  *
- * Strict Zero-Row Fail-Fast & Telemetry Logging.
+ * Snapshot Isolation, Overlap Verification, and Per-Job Cleanup.
  */
 
 import fs from 'fs';
@@ -36,6 +36,7 @@ async function processJob(job: DbExportJob) {
 
   const parts: string[] = [];
   let currentLastId = 0;
+  let previousLastId = 0;
   let totalProcessed = 0;
 
   await dbUpdateJobProgress(jobId, 0, 0, 'xlsx', 'processing');
@@ -48,6 +49,7 @@ async function processJob(job: DbExportJob) {
       jobId,
       partIndex,
       startId: currentLastId,
+      maxId: job.max_id || undefined,
       rowLimit: ROWS_PER_PART,
       outputPath: partPath,
       filters,
@@ -62,7 +64,7 @@ async function processJob(job: DbExportJob) {
       return;
     }
 
-    // STRICT ZERO-ROW FAIL FAST PROTECTION
+    // Zero-row protection
     if (childResult.rows === 0 && job.total_rows > 0) {
       const err = `Part ${partIndex}/${totalParts} returned 0 rows while export contains ${job.total_rows.toLocaleString()} records (startId=${currentLastId}).`;
       logExportEvent({ jobId, stage: 'xlsx', status: 'failed', error: err });
@@ -70,6 +72,15 @@ async function processJob(job: DbExportJob) {
       return;
     }
 
+    // Overlap Verification
+    if (partIndex > 1 && childResult.firstReturnedId !== null && childResult.firstReturnedId !== undefined && childResult.firstReturnedId <= previousLastId) {
+      const err = `Overlap invariant violation in Part ${partIndex}: firstReturnedId=${childResult.firstReturnedId} <= previousLastId=${previousLastId}`;
+      logExportEvent({ jobId, stage: 'xlsx', status: 'failed', error: err });
+      await dbFailJob(jobId, err, 'part_generation');
+      return;
+    }
+
+    previousLastId = childResult.lastId;
     currentLastId = childResult.lastId;
     totalProcessed += childResult.rows;
     parts.push(partPath);
@@ -120,9 +131,11 @@ async function processJob(job: DbExportJob) {
   await zipPromise;
 
   // Clean up individual XLSX parts
+  logExportEvent({ jobId, stage: 'cleanup', status: 'start', details: { partsToDelete: parts.length } });
   for (const partPath of parts) {
     try { fs.unlinkSync(partPath); } catch { /* ignore */ }
   }
+  logExportEvent({ jobId, stage: 'cleanup', status: 'success', details: { partsDeleted: parts.length, zipRetained: true } });
 
   if (!fs.existsSync(zipFilePath) || fs.statSync(zipFilePath).size < 100) {
     const err = 'Generated ZIP archive file missing or empty on disk';

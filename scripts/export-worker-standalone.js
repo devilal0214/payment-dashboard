@@ -4,7 +4,7 @@
  * Standalone PM2 Daemon Worker for ReFly Payment Export System.
  * Run by PM2 as refly-payment-export-worker.
  *
- * Strict Zero-Row Fail-Fast & Telemetry Logging.
+ * Snapshot Isolation, Overlap Verification, and Per-Job Cleanup.
  */
 
 const fs = require('fs');
@@ -13,7 +13,7 @@ const { spawn } = require('child_process');
 const mysql = require('mysql2/promise');
 const archiver = require('archiver');
 
-// Load environment variables from .env.local
+// Load environment variables
 require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -49,6 +49,7 @@ async function ensureTable(pool) {
       processed_rows INT NOT NULL DEFAULT 0,
       current_part INT NOT NULL DEFAULT 0,
       total_parts INT NOT NULL DEFAULT 0,
+      max_id BIGINT NULL,
       output_path VARCHAR(255) NULL,
       file_size_bytes BIGINT NULL,
       error_message TEXT NULL,
@@ -62,6 +63,9 @@ async function ensureTable(pool) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `;
   await pool.query(sql);
+  try {
+    await pool.query('ALTER TABLE export_jobs ADD COLUMN max_id BIGINT NULL');
+  } catch (e) { /* column already exists */ }
 }
 
 function runChildPart(config) {
@@ -104,7 +108,7 @@ async function processJob(pool, job) {
   const jobDir = path.join(EXPORT_TMP_DIR, `job-${jobId}`);
   fs.mkdirSync(jobDir, { recursive: true });
 
-  console.log(`[EXPORT WORKER ${jobId}] Started processing ${job.total_rows} total rows`);
+  console.log(`[EXPORT WORKER ${jobId}] Started processing ${job.total_rows} total rows (max_id boundary=${job.max_id || 'unbounded'})`);
 
   const filters = job.filters_json ? JSON.parse(job.filters_json) : {};
   const totalParts = Math.max(1, Math.ceil(job.total_rows / ROWS_PER_PART));
@@ -116,6 +120,7 @@ async function processJob(pool, job) {
 
   const parts = [];
   let currentLastId = 0;
+  let previousLastId = 0;
   let totalProcessed = 0;
 
   for (let partIndex = 1; partIndex <= totalParts; partIndex++) {
@@ -126,6 +131,7 @@ async function processJob(pool, job) {
       jobId,
       partIndex,
       startId: currentLastId,
+      maxId: job.max_id || undefined,
       rowLimit: ROWS_PER_PART,
       outputPath: partPath,
       filters,
@@ -143,9 +149,9 @@ async function processJob(pool, job) {
       return;
     }
 
-    // STRICT ZERO-ROW FAIL FAST PROTECTION
+    // Zero-row protection
     if (res.rows === 0 && job.total_rows > 0) {
-      const err = `Part ${partIndex}/${totalParts} returned 0 rows while total export contains ${job.total_rows.toLocaleString()} records (startId=${currentLastId}). Query or range mismatch.`;
+      const err = `Part ${partIndex}/${totalParts} returned 0 rows while total export contains ${job.total_rows.toLocaleString()} records (startId=${currentLastId}).`;
       console.error(`[EXPORT WORKER ${jobId}] ${err}`);
       await pool.query(
         "UPDATE export_jobs SET status = 'failed', stage = 'part_generation', error_message = ?, completed_at = NOW() WHERE job_id = ?",
@@ -154,12 +160,24 @@ async function processJob(pool, job) {
       return;
     }
 
+    // Overlap Verification
+    if (partIndex > 1 && res.firstReturnedId !== null && res.firstReturnedId <= previousLastId) {
+      const err = `Overlap invariant violation in Part ${partIndex}: firstReturnedId=${res.firstReturnedId} <= previousLastId=${previousLastId}`;
+      console.error(`[EXPORT WORKER ${jobId}] ${err}`);
+      await pool.query(
+        "UPDATE export_jobs SET status = 'failed', stage = 'part_generation', error_message = ?, completed_at = NOW() WHERE job_id = ?",
+        [err, jobId]
+      );
+      return;
+    }
+
+    previousLastId = res.lastId;
     currentLastId = res.lastId;
     totalProcessed += res.rows;
     parts.push(partPath);
 
     console.log(
-      `[EXPORT PART ${partIndex}/${totalParts}] startId=${res.startId} firstReturnedId=${res.firstReturnedId} lastId=${res.lastId} rows=${res.rows} cumulative=${totalProcessed}/${job.total_rows} maxRss=${res.maxRss}MB duration=${res.durationMs}ms childPid=${res.childPid}`
+      `[EXPORT PART ${partIndex}/${totalParts}] startId=${res.startId} maxId=${res.maxId || 'none'} firstReturnedId=${res.firstReturnedId} lastId=${res.lastId} rows=${res.rows} cumulative=${totalProcessed}/${job.total_rows} maxRss=${res.maxRss}MB duration=${res.durationMs}ms childPid=${res.childPid}`
     );
 
     await pool.query(
@@ -194,13 +212,15 @@ async function processJob(pool, job) {
   await archive.finalize();
   await zipPromise;
 
-  // Clean up XLSX part files
+  // Clean up individual XLSX parts safely
+  console.log(`[EXPORT CLEANUP ${jobId}] status=start partsToDelete=${parts.length}`);
   for (const p of parts) {
     try { fs.unlinkSync(p); } catch (e) { /* ignore */ }
   }
+  console.log(`[EXPORT CLEANUP ${jobId}] partsDeleted=${parts.length} zipRetained=true`);
 
   if (!fs.existsSync(zipFilePath) || fs.statSync(zipFilePath).size < 100) {
-    const err = 'Generated ZIP file is missing or suspiciously small (<100 bytes)';
+    const err = 'Generated ZIP file is missing or empty (<100 bytes)';
     await pool.query(
       "UPDATE export_jobs SET status = 'failed', stage = 'zip', error_message = ?, completed_at = NOW() WHERE job_id = ?",
       [err, jobId]

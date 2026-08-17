@@ -2,7 +2,7 @@
  * scripts/export-part-child.ts
  *
  * Isolated Child Process Execution Script for a Single XLSX Part (25,000 rows max).
- * Positional SQL Parameter Alignment: [currentLastId, ...filterParams, fetchLimit].
+ * Snapshot Isolation with maxId boundary to guarantee processedRows == total_rows.
  */
 
 import fs from 'fs';
@@ -15,6 +15,7 @@ interface ChildArgs {
   jobId: string;
   partIndex: number;
   startId: number;
+  maxId?: number;
   rowLimit: number;
   outputPath: string;
   filters: Record<string, unknown>;
@@ -29,7 +30,7 @@ async function runChildProcess() {
   }
 
   const args: ChildArgs = JSON.parse(inputArg);
-  const { jobId, partIndex, startId, rowLimit, outputPath, filters } = args;
+  const { jobId, partIndex, startId, maxId, rowLimit, outputPath, filters } = args;
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
@@ -51,6 +52,11 @@ async function runChildProcess() {
 
   const filterConditions: string[] = [];
   const filterParams: unknown[] = [];
+
+  if (maxId && maxId > 0) {
+    filterConditions.push('id <= ?');
+    filterParams.push(maxId);
+  }
 
   const search = (filters.search as string) || '';
   if (search) {
@@ -167,6 +173,7 @@ async function runChildProcess() {
       jobId,
       partIndex,
       startId,
+      maxId: maxId || null,
       firstReturnedId,
       lastId: currentLastId,
       rows: rowsProcessedInPart,

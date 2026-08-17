@@ -2,18 +2,12 @@
  * lib/export/export-job-manager.ts
  *
  * Server-side Export Job Coordinator with MySQL DB Persistence (export_jobs table).
- *
- * OS PROCESS ISOLATION & MEMORY SAFETY:
- * 1. Inserts job into export_jobs table in zendesk_reporting MySQL DB.
- * 2. Dedicated PM2 daemon worker (refly-payment-export-worker) processes queued jobs.
- * 3. Worker spawns isolated child process for each 25,000-row XLSX part file.
- * 4. Child process exits with process.exit(0) after writing part, instantly restoring 100% OS RAM.
- * 5. Dashboard PM2 process RSS remains flat at ~30-50 MB with ZERO process restarts!
+ * Enforces Snapshot Boundary (maxId) to ensure processedRows EXACTLY matches totalRows.
  */
 
 import fs from 'fs';
 import path from 'path';
-import { queryCount } from '@/lib/db/pool';
+import { queryOne } from '@/lib/db/pool';
 import {
   dbCreateJob,
   dbGetJob,
@@ -26,7 +20,6 @@ import { PAYMENT_TEAM_COLUMNS, type ColumnSpec } from './columns';
 export type { ColumnSpec };
 export { PAYMENT_TEAM_COLUMNS };
 
-// ─── Config & Paths ────────────────────────────────────────────────────────────
 const EXPORT_TMP_DIR = process.env.EXPORT_TMP_DIR || path.join(process.cwd(), 'tmp', 'exports');
 
 export interface ExportJobMeta {
@@ -37,6 +30,9 @@ export interface ExportJobMeta {
   stage: ExportStage;
   processedRows: number;
   totalRows: number;
+  currentPart?: number;
+  totalParts?: number;
+  maxId?: number;
   progressPercent: number;
   error?: string;
   createdAt: string;
@@ -149,7 +145,15 @@ export async function createExportJob(
 
   const dbStart = Date.now();
   logExportEvent({ jobId: 'init', stage: 'db_query', status: 'start' });
-  const totalRows = await queryCount(`SELECT COUNT(*) as total FROM reporting_tickets ${whereClause}`, params);
+
+  // Calculate totalRows and lock maxId boundary at job creation moment
+  const countAndMax = await queryOne<{ total: string | number; max_id: string | number }>(
+    `SELECT COUNT(*) as total, MAX(id) as max_id FROM reporting_tickets ${whereClause}`,
+    params
+  );
+  const totalRows = Number(countAndMax?.total ?? 0);
+  const maxId = Number(countAndMax?.max_id ?? 0);
+
   logExportEvent({ jobId: 'init', stage: 'db_query', status: 'success', durationMs: Date.now() - dbStart, rows: totalRows });
 
   // Dynamic disk space pre-check
@@ -178,6 +182,7 @@ export async function createExportJob(
     format,
     totalRows,
     totalParts,
+    maxId,
     zipFilePath,
     filtersJson: JSON.stringify(queryParams),
   });
@@ -208,6 +213,9 @@ function mapDbToMeta(dbJob: DbExportJob, zipFilename: string): ExportJobMeta {
     stage: (dbJob.stage as ExportStage) || 'init',
     processedRows: dbJob.processed_rows,
     totalRows: dbJob.total_rows,
+    currentPart: dbJob.current_part || 0,
+    totalParts: dbJob.total_parts || 0,
+    maxId: dbJob.max_id || undefined,
     progressPercent,
     error: dbJob.error_message || undefined,
     createdAt: dbJob.created_at,
@@ -216,4 +224,27 @@ function mapDbToMeta(dbJob: DbExportJob, zipFilename: string): ExportJobMeta {
     zipFilePath: dbJob.output_path || undefined,
     fileSizeBytes: dbJob.file_size_bytes || undefined,
   };
+}
+
+// ─── Periodic Stale Job Cleanup ───────────────────────────────────────────────
+
+export function cleanOldExportJobs() {
+  ensureTmpDir();
+  try {
+    const entries = fs.readdirSync(/*turbopackIgnore: true*/ EXPORT_TMP_DIR);
+    const now = Date.now();
+    const MAX_AGE_MS = 60 * 60 * 1000; // 60 minutes TTL
+
+    for (const entry of entries) {
+      if (!entry.startsWith('job-')) continue;
+      const jobDir = path.join(/*turbopackIgnore: true*/ EXPORT_TMP_DIR, entry);
+      try {
+        const stats = fs.statSync(/*turbopackIgnore: true*/ jobDir);
+        if (now - stats.mtimeMs > MAX_AGE_MS) {
+          logExportEvent({ jobId: entry.replace('job-', ''), stage: 'cleanup', status: 'start', error: 'stale_job_ttl' });
+          fs.rmSync(jobDir, { recursive: true, force: true });
+        }
+      } catch { /* skip */ }
+    }
+  } catch { /* skip */ }
 }

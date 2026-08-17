@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, SyntheticEvent } from 'react';
 import type { ReadonlyURLSearchParams } from 'next/navigation';
 import type { ExportJobMeta } from '@/lib/export/export-job-manager';
 
@@ -48,16 +48,20 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
     };
   }, [activeJob]);
 
-  async function startExport(format: 'xlsx' | 'csv', useSelectedOnly = false) {
+  async function startExport(format: 'xlsx' | 'csv', useSelectedOnly = false, e?: SyntheticEvent) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (starting) return; // Prevent duplicate clicks
     setStarting(true);
     setStartError('');
     setOpen(false);
     setModalOpen(true);
 
-    // Initial placeholder status
+    // Immediate placeholder status before waiting for HTTP response
     setActiveJob({
-      jobId: 'initializing...',
+      jobId: 'preparing...',
       userId: '',
       format,
       status: 'queued',
@@ -102,7 +106,11 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
   }
 
   // Safe file download trigger without top-level document replacement
-  function downloadExportFile(url: string, filename?: string) {
+  function downloadExportFile(url: string, filename?: string, e?: SyntheticEvent) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     const link = document.createElement('a');
     link.href = url;
     if (filename) link.download = filename;
@@ -120,12 +128,16 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
     return `${(bytes / 1024).toFixed(0)} KB`;
   }
 
+  const currentPart = activeJob?.currentPart || (activeJob?.processedRows ? Math.max(1, Math.ceil(activeJob.processedRows / 25000)) : 1);
+  const totalParts = activeJob?.totalParts || (activeJob?.totalRows ? Math.max(1, Math.ceil(activeJob.totalRows / 25000)) : 1);
+
   return (
     <>
       <div ref={ref} className="relative select-none">
         <button
+          type="button"
           id="export-menu-toggle"
-          onClick={() => setOpen((v) => !v)}
+          onClick={(e) => { e.preventDefault(); setOpen((v) => !v); }}
           disabled={starting}
           className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 text-white rounded-md
                      text-xs font-semibold hover:bg-zinc-800 transition-colors shadow-subtle disabled:opacity-50"
@@ -152,8 +164,9 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
 
               {/* Full XLSX Export */}
               <button
+                type="button"
                 id="export-xlsx-full"
-                onClick={() => startExport('xlsx')}
+                onClick={(e) => startExport('xlsx', false, e)}
                 disabled={starting}
                 className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors disabled:opacity-50"
               >
@@ -163,13 +176,14 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                   </span>
                   <span>Full Excel Export (ZIP)</span>
                 </div>
-                <span className="text-[10px] font-mono text-zinc-400">50k/part</span>
+                <span className="text-[10px] font-mono text-zinc-400">25k/part</span>
               </button>
 
               {/* Full CSV Export */}
               <button
+                type="button"
                 id="export-csv-full"
-                onClick={() => startExport('csv')}
+                onClick={(e) => startExport('csv', false, e)}
                 disabled={starting}
                 className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors disabled:opacity-50"
               >
@@ -189,16 +203,18 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                     Selected Rows ({selectedIds.length})
                   </p>
                   <button
+                    type="button"
                     id="export-xlsx-selected"
-                    onClick={() => startExport('xlsx', true)}
+                    onClick={(e) => startExport('xlsx', true, e)}
                     disabled={starting}
                     className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors disabled:opacity-50"
                   >
                     <span>Selected ({selectedIds.length}) as Excel</span>
                   </button>
                   <button
+                    type="button"
                     id="export-csv-selected"
-                    onClick={() => startExport('csv', true)}
+                    onClick={(e) => startExport('csv', true, e)}
                     disabled={starting}
                     className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-zinc-100 text-xs font-medium text-zinc-800 text-left transition-colors disabled:opacity-50"
                   >
@@ -211,7 +227,8 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                 <>
                   <div className="my-1 border-t border-zinc-100" />
                   <button
-                    onClick={() => setModalOpen(true)}
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); setModalOpen(true); }}
                     className="w-full text-center px-3 py-1.5 text-xs font-mono font-semibold text-zinc-900 bg-zinc-100 hover:bg-zinc-200 rounded transition-colors"
                   >
                     View Active Export Progress →
@@ -244,7 +261,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                 </div>
                 <p className="text-xs text-zinc-500 font-mono mt-0.5">Job ID: {activeJob.jobId}</p>
               </div>
-              <button onClick={() => setModalOpen(false)} className="text-zinc-400 hover:text-zinc-950 font-mono text-sm">
+              <button type="button" onClick={() => setModalOpen(false)} className="text-zinc-400 hover:text-zinc-950 font-mono text-sm">
                 ✕
               </button>
             </div>
@@ -274,7 +291,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                Preparing background export task...
+                Preparing export background task...
               </div>
             )}
 
@@ -284,7 +301,9 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                Streaming keyset SQL chunks into 50,000-row XLSX worksheets...
+                <span>
+                  Generating Part <strong>{currentPart}</strong> of <strong>{totalParts}</strong> (25,000 rows/part)...
+                </span>
               </div>
             )}
 
@@ -300,7 +319,8 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                 </div>
 
                 <button
-                  onClick={() => downloadExportFile(`/api/tickets/export/download/${activeJob.jobId}`, activeJob.zipFilename)}
+                  type="button"
+                  onClick={(e) => downloadExportFile(`/api/tickets/export/download/${activeJob.jobId}`, activeJob.zipFilename, e)}
                   className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded text-xs transition-colors shadow-subtle"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

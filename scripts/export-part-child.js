@@ -2,11 +2,7 @@
  * scripts/export-part-child.js
  *
  * Node.js CommonJS Child Process for a Single XLSX Part (25,000 rows max).
- * Executes directly via Node.js runtime (/opt/plesk/node/21/bin/node).
- *
- * OS MEMORY RECLAMATION:
- * Exiting with process.exit(0) guarantees 100% reclamation of all zlib, C++ ArrayBuffers,
- * and MySQL connection buffers.
+ * Snapshot Isolation with maxId boundary to guarantee processedRows == total_rows.
  */
 
 const fs = require('fs');
@@ -93,7 +89,7 @@ async function runChildProcess() {
   }
 
   const args = JSON.parse(inputArg);
-  const { jobId, partIndex, startId, rowLimit, outputPath, filters } = args;
+  const { jobId, partIndex, startId, maxId, rowLimit, outputPath, filters } = args;
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
@@ -115,6 +111,11 @@ async function runChildProcess() {
 
   const filterConditions = [];
   const filterParams = [];
+
+  if (maxId && maxId > 0) {
+    filterConditions.push('id <= ?');
+    filterParams.push(maxId);
+  }
 
   const search = (filters.search) || '';
   if (search) {
@@ -192,7 +193,7 @@ async function runChildProcess() {
   while (rowsProcessedInPart < rowLimit) {
     const fetchLimit = Math.min(BATCH, rowLimit - rowsProcessedInPart);
 
-    // Positional mapping: [currentLastId, ...filterParams, fetchLimit]
+    // Positional parameter map: [currentLastId, ...filterParams, fetchLimit]
     const queryParams = [currentLastId, ...filterParams, fetchLimit];
 
     const [dbRows] = await conn.execute(sqlQuery, queryParams);
@@ -231,6 +232,7 @@ async function runChildProcess() {
       jobId,
       partIndex,
       startId,
+      maxId: maxId || null,
       firstReturnedId,
       lastId: currentLastId,
       rows: rowsProcessedInPart,
