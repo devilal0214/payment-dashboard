@@ -2,11 +2,7 @@
  * scripts/export-part-child.ts
  *
  * Isolated Child Process Execution Script for a Single XLSX Part (25,000 rows max).
- *
- * KEY OS MEMORY GUARANTEE:
- * When this child process completes and executes process.exit(0), the OS kernel
- * IMMEDIATELY RECLAIMS 100% OF C++ NATIVE ARRAYBUFFERS, MYSQL STREAMS, AND V8 HEAP!
- * Peak memory stays zero for the parent process!
+ * Positional SQL Parameter Alignment: [currentLastId, ...filterParams, fetchLimit].
  */
 
 import fs from 'fs';
@@ -35,29 +31,32 @@ async function runChildProcess() {
   const args: ChildArgs = JSON.parse(inputArg);
   const { jobId, partIndex, startId, rowLimit, outputPath, filters } = args;
 
-  // Ensure output folder exists
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-  // Connect to database directly in child process
+  const dbHost = process.env.REPORT_DB_HOST || '127.0.0.1';
+  const dbPort = parseInt(process.env.REPORT_DB_PORT || '3306', 10);
+  const dbUser = process.env.REPORT_DB_USER;
+  const dbPass = process.env.REPORT_DB_PASS;
+  const dbName = process.env.REPORT_DB_NAME || 'zendesk_reporting';
+
   const conn = await mysql.createConnection({
-    host: process.env.REPORT_DB_HOST || '127.0.0.1',
-    port: parseInt(process.env.REPORT_DB_PORT || '3306', 10),
-    user: process.env.REPORT_DB_USER,
-    password: process.env.REPORT_DB_PASS,
-    database: process.env.REPORT_DB_NAME || 'zendesk_reporting',
+    host: dbHost,
+    port: dbPort,
+    user: dbUser,
+    password: dbPass,
+    database: dbName,
     dateStrings: true,
     timezone: 'Z',
   });
 
-  // Build WHERE clause
-  const conditions: string[] = ['id > ?'];
-  const params: unknown[] = [startId];
+  const filterConditions: string[] = [];
+  const filterParams: unknown[] = [];
 
   const search = (filters.search as string) || '';
   if (search) {
     const like = `%${search}%`;
-    conditions.push(`(claim_number LIKE ? OR ticket_id LIKE ? OR external_id LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR airline LIKE ? OR flight_number LIKE ? OR booking_reference_number LIKE ?)`);
-    params.push(like, like, like, like, like, like, like, like, like);
+    filterConditions.push(`(claim_number LIKE ? OR ticket_id LIKE ? OR external_id LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR airline LIKE ? OR flight_number LIKE ? OR booking_reference_number LIKE ?)`);
+    filterParams.push(like, like, like, like, like, like, like, like, like);
   }
 
   const stringFilters: Array<[string | undefined, string]> = [
@@ -73,7 +72,7 @@ async function runChildProcess() {
   ];
 
   for (const [val, col] of stringFilters) {
-    if (val) { conditions.push(`${col} LIKE ?`); params.push(`%${val}%`); }
+    if (val) { filterConditions.push(`${col} LIKE ?`); filterParams.push(`%${val}%`); }
   }
 
   const boolFilters: Array<[unknown, string]> = [
@@ -86,8 +85,8 @@ async function runChildProcess() {
   for (const [val, col] of boolFilters) {
     if (val !== undefined && val !== null && val !== '') {
       const isTrue = val === true || val === 'true' || val === 1 || val === '1';
-      conditions.push(`${col} = ?`);
-      params.push(isTrue ? 1 : 0);
+      filterConditions.push(`${col} = ?`);
+      filterParams.push(isTrue ? 1 : 0);
     }
   }
 
@@ -97,15 +96,18 @@ async function runChildProcess() {
     return `\`${c.dbCol}\` AS \`${c.id}\``;
   }).join(', ');
 
+  const whereClause = filterConditions.length > 0
+    ? `WHERE id > ? AND ${filterConditions.join(' AND ')}`
+    : `WHERE id > ?`;
+
   const sqlQuery = `
     SELECT id, ${selectCols}
     FROM reporting_tickets
-    WHERE ${conditions.join(' AND ')}
+    ${whereClause}
     ORDER BY id ASC
     LIMIT ?
   `;
 
-  // Create streaming ExcelJS workbook
   const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
     filename: outputPath,
     useSharedStrings: false,
@@ -121,13 +123,20 @@ async function runChildProcess() {
   const BATCH = 5000;
   let rowsProcessedInPart = 0;
   let currentLastId = startId;
+  let firstReturnedId: number | null = null;
 
   while (rowsProcessedInPart < rowLimit) {
     const fetchLimit = Math.min(BATCH, rowLimit - rowsProcessedInPart);
-    const queryParams = [...params.slice(0, -1), currentLastId, fetchLimit];
+
+    // Positional parameter map: [currentLastId, ...filterParams, fetchLimit]
+    const queryParams = [currentLastId, ...filterParams, fetchLimit];
 
     const [dbRows] = await conn.execute<mysql.RowDataPacket[]>(sqlQuery, queryParams as any);
     if (!dbRows || dbRows.length === 0) break;
+
+    if (firstReturnedId === null) {
+      firstReturnedId = Number(dbRows[0].id);
+    }
 
     for (const r of dbRows) {
       currentLastId = Number(r.id);
@@ -157,15 +166,19 @@ async function runChildProcess() {
       success: true,
       jobId,
       partIndex,
-      rows: rowsProcessedInPart,
+      startId,
+      firstReturnedId,
       lastId: currentLastId,
+      rows: rowsProcessedInPart,
       fileSize,
       durationMs,
       maxRss,
+      dbName,
+      filterCount: filterConditions.length,
+      childPid: process.pid,
     })
   );
 
-  // OS kernel reclaims 100% memory upon exit
   process.exit(0);
 }
 

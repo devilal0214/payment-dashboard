@@ -4,7 +4,7 @@
  * Dedicated Export Worker Daemon process.
  * Orchestrates multi-part 25,000-row export jobs using OS process isolation (child_process).
  *
- * Runs as a standalone PM2 background process (refly-payment-export-worker).
+ * Strict Zero-Row Fail-Fast & Telemetry Logging.
  */
 
 import fs from 'fs';
@@ -58,7 +58,15 @@ async function processJob(job: DbExportJob) {
     if (!childResult.success) {
       const err = childResult.error || `Child process for Part ${partIndex} failed`;
       logExportEvent({ jobId, stage: 'xlsx', status: 'failed', error: err });
-      await dbFailJob(jobId, err, 'xlsx');
+      await dbFailJob(jobId, err, 'part_generation');
+      return;
+    }
+
+    // STRICT ZERO-ROW FAIL FAST PROTECTION
+    if (childResult.rows === 0 && job.total_rows > 0) {
+      const err = `Part ${partIndex}/${totalParts} returned 0 rows while export contains ${job.total_rows.toLocaleString()} records (startId=${currentLastId}).`;
+      logExportEvent({ jobId, stage: 'xlsx', status: 'failed', error: err });
+      await dbFailJob(jobId, err, 'part_generation');
       return;
     }
 
@@ -71,12 +79,18 @@ async function processJob(job: DbExportJob) {
       stage: 'xlsx',
       status: 'processing',
       rows: totalProcessed,
-      details: { part: partIndex, totalParts, childRssMB: childResult.maxRss },
+      details: {
+        part: partIndex,
+        totalParts,
+        startId: childResult.startId,
+        lastId: childResult.lastId,
+        childRssMB: childResult.maxRss,
+      },
     });
 
     await dbUpdateJobProgress(jobId, totalProcessed, partIndex, 'xlsx', 'processing');
 
-    if (childResult.rows === 0 || totalProcessed >= job.total_rows) break;
+    if (childResult.rows < ROWS_PER_PART || totalProcessed >= job.total_rows) break;
   }
 
   logExportEvent({ jobId, stage: 'xlsx', status: 'success', rows: totalProcessed });
@@ -110,19 +124,13 @@ async function processJob(job: DbExportJob) {
     try { fs.unlinkSync(partPath); } catch { /* ignore */ }
   }
 
-  if (!fs.existsSync(zipFilePath)) {
-    const err = 'Generated ZIP archive file missing on disk';
+  if (!fs.existsSync(zipFilePath) || fs.statSync(zipFilePath).size < 100) {
+    const err = 'Generated ZIP archive file missing or empty on disk';
     await dbFailJob(jobId, err, 'zip');
     return;
   }
 
   const zipSize = fs.statSync(zipFilePath).size;
-  if (zipSize === 0) {
-    const err = 'Generated ZIP archive is empty (0 bytes)';
-    await dbFailJob(jobId, err, 'zip');
-    return;
-  }
-
   logExportEvent({ jobId, stage: 'zip', status: 'success', durationMs: Date.now() - zipStart, sizeBytes: zipSize });
 
   await dbCompleteJob(jobId, totalProcessed, zipSize);
@@ -143,7 +151,6 @@ async function workerLoop() {
     } catch (err) {
       console.error('[ExportWorker Daemon] Error in main loop:', err);
     }
-    // Sleep 2 seconds before checking next job
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 }

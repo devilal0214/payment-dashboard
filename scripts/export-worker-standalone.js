@@ -4,8 +4,7 @@
  * Standalone PM2 Daemon Worker for ReFly Payment Export System.
  * Run by PM2 as refly-payment-export-worker.
  *
- * Usage:
- *   /opt/plesk/node/21/bin/node scripts/export-worker-standalone.js
+ * Strict Zero-Row Fail-Fast & Telemetry Logging.
  */
 
 const fs = require('fs');
@@ -105,7 +104,7 @@ async function processJob(pool, job) {
   const jobDir = path.join(EXPORT_TMP_DIR, `job-${jobId}`);
   fs.mkdirSync(jobDir, { recursive: true });
 
-  console.log(`[EXPORT WORKER ${jobId}] Started processing ${job.total_rows} rows`);
+  console.log(`[EXPORT WORKER ${jobId}] Started processing ${job.total_rows} total rows`);
 
   const filters = job.filters_json ? JSON.parse(job.filters_json) : {};
   const totalParts = Math.max(1, Math.ceil(job.total_rows / ROWS_PER_PART));
@@ -138,8 +137,19 @@ async function processJob(pool, job) {
       const err = res.error || `Part ${partIndex} child process failed`;
       console.error(`[EXPORT WORKER ${jobId}] Part ${partIndex} failed: ${err}`);
       await pool.query(
-        "UPDATE export_jobs SET status = 'failed', stage = 'xlsx', error_message = ?, completed_at = NOW() WHERE job_id = ?",
+        "UPDATE export_jobs SET status = 'failed', stage = 'part_generation', error_message = ?, completed_at = NOW() WHERE job_id = ?",
         [err.slice(0, 1000), jobId]
+      );
+      return;
+    }
+
+    // STRICT ZERO-ROW FAIL FAST PROTECTION
+    if (res.rows === 0 && job.total_rows > 0) {
+      const err = `Part ${partIndex}/${totalParts} returned 0 rows while total export contains ${job.total_rows.toLocaleString()} records (startId=${currentLastId}). Query or range mismatch.`;
+      console.error(`[EXPORT WORKER ${jobId}] ${err}`);
+      await pool.query(
+        "UPDATE export_jobs SET status = 'failed', stage = 'part_generation', error_message = ?, completed_at = NOW() WHERE job_id = ?",
+        [err, jobId]
       );
       return;
     }
@@ -148,14 +158,16 @@ async function processJob(pool, job) {
     totalProcessed += res.rows;
     parts.push(partPath);
 
-    console.log(`[EXPORT PART ${partIndex}/${totalParts}] rows=${res.rows} cumulative=${totalProcessed} maxRss=${res.maxRss}MB duration=${res.durationMs}ms`);
+    console.log(
+      `[EXPORT PART ${partIndex}/${totalParts}] startId=${res.startId} firstReturnedId=${res.firstReturnedId} lastId=${res.lastId} rows=${res.rows} cumulative=${totalProcessed}/${job.total_rows} maxRss=${res.maxRss}MB duration=${res.durationMs}ms childPid=${res.childPid}`
+    );
 
     await pool.query(
       "UPDATE export_jobs SET processed_rows = ?, current_part = ? WHERE job_id = ?",
       [totalProcessed, partIndex, jobId]
     );
 
-    if (res.rows === 0 || totalProcessed >= job.total_rows) break;
+    if (res.rows < ROWS_PER_PART || totalProcessed >= job.total_rows) break;
   }
 
   // ZIP Compression Stage
@@ -187,8 +199,8 @@ async function processJob(pool, job) {
     try { fs.unlinkSync(p); } catch (e) { /* ignore */ }
   }
 
-  if (!fs.existsSync(zipFilePath) || fs.statSync(zipFilePath).size === 0) {
-    const err = 'Generated ZIP file is missing or empty';
+  if (!fs.existsSync(zipFilePath) || fs.statSync(zipFilePath).size < 100) {
+    const err = 'Generated ZIP file is missing or suspiciously small (<100 bytes)';
     await pool.query(
       "UPDATE export_jobs SET status = 'failed', stage = 'zip', error_message = ?, completed_at = NOW() WHERE job_id = ?",
       [err, jobId]
@@ -198,7 +210,7 @@ async function processJob(pool, job) {
 
   const zipSize = fs.statSync(zipFilePath).size;
   const duration = Date.now() - zipStart;
-  console.log(`[EXPORT WORKER ${jobId}] ZIP finalized! size=${zipSize} bytes duration=${duration}ms`);
+  console.log(`[EXPORT WORKER ${jobId}] ZIP finalized! parts=${parts.length} totalRows=${totalProcessed} size=${zipSize} bytes duration=${duration}ms`);
 
   await pool.query(
     "UPDATE export_jobs SET status = 'completed', stage = 'completed', processed_rows = ?, file_size_bytes = ?, completed_at = NOW() WHERE job_id = ?",

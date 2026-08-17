@@ -14,6 +14,10 @@ const path = require('path');
 const ExcelJS = require('exceljs');
 const mysql = require('mysql2/promise');
 
+// Load environment variables
+require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 const PAYMENT_TEAM_COLUMNS = [
   { id: 'ticket_id', label: 'Ticket Id', dbCol: 'ticket_id' },
   { id: 'requested_date', label: 'Requested Date', dbCol: 'requested_date' },
@@ -93,24 +97,30 @@ async function runChildProcess() {
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
+  const dbHost = process.env.REPORT_DB_HOST || '127.0.0.1';
+  const dbPort = parseInt(process.env.REPORT_DB_PORT || '3306', 10);
+  const dbUser = process.env.REPORT_DB_USER;
+  const dbPass = process.env.REPORT_DB_PASS;
+  const dbName = process.env.REPORT_DB_NAME || 'zendesk_reporting';
+
   const conn = await mysql.createConnection({
-    host: process.env.REPORT_DB_HOST || '127.0.0.1',
-    port: parseInt(process.env.REPORT_DB_PORT || '3306', 10),
-    user: process.env.REPORT_DB_USER,
-    password: process.env.REPORT_DB_PASS,
-    database: process.env.REPORT_DB_NAME || 'zendesk_reporting',
+    host: dbHost,
+    port: dbPort,
+    user: dbUser,
+    password: dbPass,
+    database: dbName,
     dateStrings: true,
     timezone: 'Z',
   });
 
-  const conditions = ['id > ?'];
-  const params = [startId];
+  const filterConditions = [];
+  const filterParams = [];
 
   const search = (filters.search) || '';
   if (search) {
     const like = `%${search}%`;
-    conditions.push(`(claim_number LIKE ? OR ticket_id LIKE ? OR external_id LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR airline LIKE ? OR flight_number LIKE ? OR booking_reference_number LIKE ?)`);
-    params.push(like, like, like, like, like, like, like, like, like);
+    filterConditions.push(`(claim_number LIKE ? OR ticket_id LIKE ? OR external_id LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR airline LIKE ? OR flight_number LIKE ? OR booking_reference_number LIKE ?)`);
+    filterParams.push(like, like, like, like, like, like, like, like, like);
   }
 
   const stringFilters = [
@@ -126,7 +136,7 @@ async function runChildProcess() {
   ];
 
   for (const [val, col] of stringFilters) {
-    if (val) { conditions.push(`${col} LIKE ?`); params.push(`%${val}%`); }
+    if (val) { filterConditions.push(`${col} LIKE ?`); filterParams.push(`%${val}%`); }
   }
 
   const boolFilters = [
@@ -139,8 +149,8 @@ async function runChildProcess() {
   for (const [val, col] of boolFilters) {
     if (val !== undefined && val !== null && val !== '') {
       const isTrue = val === true || val === 'true' || val === 1 || val === '1';
-      conditions.push(`${col} = ?`);
-      params.push(isTrue ? 1 : 0);
+      filterConditions.push(`${col} = ?`);
+      filterParams.push(isTrue ? 1 : 0);
     }
   }
 
@@ -150,10 +160,14 @@ async function runChildProcess() {
     return `\`${c.dbCol}\` AS \`${c.id}\``;
   }).join(', ');
 
+  const whereClause = filterConditions.length > 0
+    ? `WHERE id > ? AND ${filterConditions.join(' AND ')}`
+    : `WHERE id > ?`;
+
   const sqlQuery = `
     SELECT id, ${selectCols}
     FROM reporting_tickets
-    WHERE ${conditions.join(' AND ')}
+    ${whereClause}
     ORDER BY id ASC
     LIMIT ?
   `;
@@ -173,13 +187,20 @@ async function runChildProcess() {
   const BATCH = 5000;
   let rowsProcessedInPart = 0;
   let currentLastId = startId;
+  let firstReturnedId = null;
 
   while (rowsProcessedInPart < rowLimit) {
     const fetchLimit = Math.min(BATCH, rowLimit - rowsProcessedInPart);
-    const queryParams = [...params, currentLastId, fetchLimit];
+
+    // Positional mapping: [currentLastId, ...filterParams, fetchLimit]
+    const queryParams = [currentLastId, ...filterParams, fetchLimit];
 
     const [dbRows] = await conn.execute(sqlQuery, queryParams);
     if (!dbRows || dbRows.length === 0) break;
+
+    if (firstReturnedId === null) {
+      firstReturnedId = Number(dbRows[0].id);
+    }
 
     for (const r of dbRows) {
       currentLastId = Number(r.id);
@@ -209,11 +230,16 @@ async function runChildProcess() {
       success: true,
       jobId,
       partIndex,
-      rows: rowsProcessedInPart,
+      startId,
+      firstReturnedId,
       lastId: currentLastId,
+      rows: rowsProcessedInPart,
       fileSize,
       durationMs,
       maxRss,
+      dbName,
+      filterCount: filterConditions.length,
+      childPid: process.pid,
     })
   );
 

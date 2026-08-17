@@ -11,6 +11,8 @@ export interface ChildLauncherResult {
   success: boolean;
   jobId: string;
   partIndex: number;
+  startId: number;
+  firstReturnedId?: number | null;
   rows: number;
   lastId: number;
   fileSize: number;
@@ -55,6 +57,7 @@ export function childProcessFork(config: Record<string, unknown>): Promise<Child
             success: false,
             jobId: String(config.jobId),
             partIndex: Number(config.partIndex),
+            startId: Number(config.startId),
             rows: 0,
             lastId: Number(config.startId),
             fileSize: 0,
@@ -68,6 +71,7 @@ export function childProcessFork(config: Record<string, unknown>): Promise<Child
           success: false,
           jobId: String(config.jobId),
           partIndex: Number(config.partIndex),
+          startId: Number(config.startId),
           rows: 0,
           lastId: Number(config.startId),
           fileSize: 0,
@@ -83,6 +87,7 @@ export function childProcessFork(config: Record<string, unknown>): Promise<Child
         success: false,
         jobId: String(config.jobId),
         partIndex: Number(config.partIndex),
+        startId: Number(config.startId),
         rows: 0,
         lastId: Number(config.startId),
         fileSize: 0,
