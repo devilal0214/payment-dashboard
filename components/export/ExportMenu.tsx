@@ -9,8 +9,6 @@ interface ExportMenuProps {
   selectedIds: number[];
 }
 
-// Local React Error Boundary to catch render exceptions inside export modal
-// preventing errors from bubbling to Next.js Root Error Boundary ("This page couldn't load")
 interface ErrorBoundaryProps {
   children: ReactNode;
   onReset: () => void;
@@ -40,7 +38,7 @@ class ExportErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
       return (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 space-y-2">
           <div className="font-bold flex items-center justify-between">
-            <span>✖ Export Render Error</span>
+            <span>✖ Export Notice</span>
             <button
               type="button"
               onClick={() => {
@@ -66,6 +64,8 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
   const [modalOpen, setModalOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState('');
+  const [traceId, setTraceId] = useState<string>('');
+
   const ref = useRef<HTMLDivElement>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -77,7 +77,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Poll active export job progress via pure client fetch()
+  // Poll active export job progress with X-Export-Trace-Id header
   useEffect(() => {
     if (!activeJob || !activeJob.jobId || activeJob.jobId.startsWith('prep') || activeJob.status === 'completed' || activeJob.status === 'failed') {
       if (pollIntervalRef.current) {
@@ -88,12 +88,16 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
     }
 
     const currentJobId = activeJob.jobId;
+    const currentTraceId = traceId || 'untraced';
 
     pollIntervalRef.current = setInterval(async () => {
       try {
         const res = await fetch(`/api/tickets/export/jobs/${currentJobId}`, {
           method: 'GET',
-          headers: { 'Cache-Control': 'no-store' },
+          headers: {
+            'Cache-Control': 'no-store',
+            'X-Export-Trace-Id': currentTraceId,
+          },
           credentials: 'include',
         });
 
@@ -108,7 +112,6 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
             }
           }
         } else {
-          // Handle 4xx / 5xx polling errors gracefully without throwing
           const errData = await res.json().catch(() => ({}));
           const errMsg = errData.error || `HTTP ${res.status} checking export status`;
           setActiveJob((prev) => prev ? { ...prev, status: 'failed', error: errMsg } : null);
@@ -128,7 +131,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
         pollIntervalRef.current = null;
       }
     };
-  }, [activeJob?.jobId, activeJob?.status]);
+  }, [activeJob?.jobId, activeJob?.status, traceId]);
 
   async function startExport(format: 'xlsx' | 'csv', useSelectedOnly = false, e?: SyntheticEvent) {
     if (e) {
@@ -136,6 +139,12 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
       e.stopPropagation();
     }
     if (starting) return; // Prevent duplicate clicks
+
+    const newTraceId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `tr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    setTraceId(newTraceId);
     setStarting(true);
     setStartError('');
     setOpen(false);
@@ -151,7 +160,10 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
     try {
       const res = await fetch('/api/tickets/export/jobs', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Export-Trace-Id': newTraceId,
+        },
         credentials: 'include',
         body: JSON.stringify({
           format,
@@ -208,7 +220,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
     return `${(bytes / 1024).toFixed(0)} KB`;
   }
 
-  // Ultra-safe numeric fallbacks to prevent React render exceptions
+  // Ultra-safe numeric fallbacks
   const processedRows = (typeof activeJob?.processedRows === 'number' && !isNaN(activeJob.processedRows)) ? activeJob.processedRows : 0;
   const totalRows = (typeof activeJob?.totalRows === 'number' && !isNaN(activeJob.totalRows)) ? activeJob.totalRows : 0;
   const progressPercent = (typeof activeJob?.progressPercent === 'number' && !isNaN(activeJob.progressPercent)) ? Math.min(Math.max(activeJob.progressPercent, 0), 100) : 0;
@@ -348,6 +360,7 @@ export default function ExportMenu({ searchParams, selectedIds }: ExportMenuProp
                   </span>
                 </div>
                 <p className="text-xs text-zinc-500 font-mono mt-0.5">Job ID: {activeJob?.jobId || 'preparing...'}</p>
+                {traceId && <p className="text-[9px] text-zinc-400 font-mono">Trace ID: {traceId.slice(0, 18)}</p>}
               </div>
               <button type="button" onClick={() => setModalOpen(false)} className="text-zinc-400 hover:text-zinc-950 font-mono text-sm">
                 ✕

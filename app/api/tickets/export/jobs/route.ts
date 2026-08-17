@@ -4,9 +4,13 @@ import { hasPermission } from '@/lib/auth/roles';
 import { createExportJob } from '@/lib/export/export-job-manager';
 
 export async function POST(req: NextRequest) {
+  const traceId = req.headers.get('x-export-trace-id') || 'untraced';
+  console.log(`[EXPORT UI traceId=${traceId}] POST start`);
+
   try {
     const user = await requireAuth();
     if (!hasPermission(user.role, 'exportBasic')) {
+      console.log(`[EXPORT UI traceId=${traceId}] POST response status=403 error=Forbidden`);
       return NextResponse.json({ error: 'Forbidden: Insufficient permissions for export' }, { status: 403 });
     }
 
@@ -17,6 +21,8 @@ export async function POST(req: NextRequest) {
 
     const job = await createExportJob(user.username, queryParams, format, selectedIds);
 
+    console.log(`[EXPORT UI traceId=${traceId}] POST response status=200 jobId=${job.jobId} totalRows=${job.totalRows}`);
+
     return NextResponse.json({
       jobId: job.jobId,
       status: job.status,
@@ -25,16 +31,16 @@ export async function POST(req: NextRequest) {
       createdAt: job.createdAt,
     });
   } catch (err) {
-    if (err instanceof Error) {
-      if (err.message === 'Unauthorized') {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-      if (err.message.includes('disk space')) {
-        return NextResponse.json({ error: err.message }, { status: 507 });
-      }
-      return NextResponse.json({ error: err.message }, { status: 400 });
+    const errMsg = err instanceof Error ? err.message : 'Unknown error';
+    if (errMsg === 'Unauthorized') {
+      console.log(`[EXPORT UI traceId=${traceId}] POST response status=401 error=Unauthorized`);
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    console.error('[API /tickets/export/jobs POST] Error:', err);
-    return NextResponse.json({ error: 'Failed to initiate export job' }, { status: 500 });
+    if (errMsg.includes('disk space')) {
+      console.log(`[EXPORT UI traceId=${traceId}] POST response status=507 error="${errMsg}"`);
+      return NextResponse.json({ error: errMsg }, { status: 507 });
+    }
+    console.error(`[EXPORT UI traceId=${traceId}] POST response status=400 error="${errMsg}"`);
+    return NextResponse.json({ error: errMsg }, { status: 400 });
   }
 }
