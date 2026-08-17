@@ -1,8 +1,8 @@
 /**
  * lib/export/export-logger.ts
  *
- * Structured Server-Side Export Logging System.
- * Logs exact export pipeline stages and performance metrics to PM2 / console
+ * Structured Server-Side Export Logging & Memory Monitoring System.
+ * Logs exact export pipeline stages and RSS / Heap memory metrics to PM2 / console
  * without exposing customer PII, passwords, or raw credentials.
  */
 
@@ -44,4 +44,17 @@ export function logExportEvent(event: ExportLogEvent): void {
   } else {
     console.log(parts.join(' '));
   }
+}
+
+export function logMemoryUsage(jobId: string, processedRows: number, totalRows: number): void {
+  const mem = process.memoryUsage();
+  const rss = Math.round(mem.rss / 1048576);
+  const heapUsed = Math.round(mem.heapUsed / 1048576);
+  const heapTotal = Math.round(mem.heapTotal / 1048576);
+  const external = Math.round(mem.external / 1048576);
+  const arrayBuffers = Math.round((mem.arrayBuffers || 0) / 1048576);
+
+  console.log(
+    `[EXPORT MEMORY ${jobId}] rows=${processedRows}/${totalRows} rss=${rss}MB heapUsed=${heapUsed}MB heapTotal=${heapTotal}MB ext=${external}MB ab=${arrayBuffers}MB`
+  );
 }
