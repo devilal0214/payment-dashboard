@@ -23,6 +23,8 @@ import FilterChips from '@/components/filters/FilterChips';
 import Pagination from '@/components/pagination/Pagination';
 import ExportMenu from '@/components/export/ExportMenu';
 import DetailDrawer from '@/components/detail/DetailDrawer';
+import { triggerNavigationProgress } from '@/components/layout/NavigationProgress';
+
 
 interface TicketsPageClientProps {
   filterOptions: FilterOptions | null;
@@ -222,6 +224,8 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
   }
 
   function pushParams(overrides: Record<string, string | number | undefined>) {
+    setLoading(true);
+    triggerNavigationProgress();
     const params = buildParams(overrides);
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
   }
@@ -246,6 +250,8 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
 
   function handleSearchChange(val: string) {
     setSearchInput(val);
+    setLoading(true);
+    triggerNavigationProgress();
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       pushParams({ search: val || undefined, page: 1 });
@@ -253,6 +259,8 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
   }
 
   function handleSortingChange(updater: SortingState | ((prev: SortingState) => SortingState)) {
+    setLoading(true);
+    triggerNavigationProgress();
     const next = typeof updater === 'function' ? updater(sorting) : updater;
     setSorting(next);
     if (next[0]) {
@@ -284,6 +292,8 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
   const activeFilters = Array.from(new Set(FILTER_KEYS.filter((k) => searchParams.get(k))));
 
   function clearAllFilters() {
+    setLoading(true);
+    triggerNavigationProgress();
     const params = new URLSearchParams();
     params.set('page', '1');
     params.set('pageSize', String(currentPageSize));
@@ -292,9 +302,12 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
   }
 
   function removeFilter(key: string) {
+    setLoading(true);
+    triggerNavigationProgress();
     pushParams({ [key]: undefined, page: 1 });
     if (key === 'search') setSearchInput('');
   }
+
 
   const selectedIds = Object.keys(rowSelection)
     .map((idx) => data[parseInt(idx)]?.id)
@@ -521,6 +534,8 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
         filterOptions={filterOptions}
         searchParams={searchParams}
         onApply={(filters) => {
+          setLoading(true);
+          triggerNavigationProgress();
           const params = new URLSearchParams({ page: '1', pageSize: String(currentPageSize) });
           if (currentSearch) params.set('search', currentSearch);
           if (currentSortBy) params.set('sortBy', currentSortBy);
@@ -532,6 +547,7 @@ export default function TicketsPageClient({ filterOptions }: TicketsPageClientPr
           setFilterDrawerOpen(false);
         }}
       />
+
 
       {/* Detail Drawer */}
       {selectedTicketId !== null && (

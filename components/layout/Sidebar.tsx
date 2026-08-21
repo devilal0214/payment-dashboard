@@ -1,7 +1,9 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { triggerNavigationProgress } from './NavigationProgress';
 
 const NAV_ITEMS = [
   {
@@ -28,6 +30,18 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPendingHref(null);
+  }, [pathname]);
+
+  const handleLinkClick = (href: string) => {
+    if (pathname !== href) {
+      setPendingHref(href);
+      triggerNavigationProgress();
+    }
+  };
 
   return (
     <aside className="w-56 shrink-0 bg-zinc-950 text-white border-r border-zinc-800 flex flex-col h-full select-none">
@@ -51,10 +65,30 @@ export default function Sidebar() {
         </p>
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+          const isPending = pendingHref === item.href;
+
           return (
-            <Link key={item.href} href={item.href} className={`sidebar-link ${isActive ? 'active' : ''}`}>
-              <span className={isActive ? 'text-white' : 'text-zinc-400'}>{item.icon}</span>
-              <span>{item.label}</span>
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => handleLinkClick(item.href)}
+              aria-current={isActive ? 'page' : undefined}
+              className={`sidebar-link relative ${isActive ? 'active' : ''} ${isPending ? 'bg-zinc-800/60 text-white' : ''}`}
+            >
+              <span className={isActive || isPending ? 'text-white' : 'text-zinc-400'}>
+                {isPending ? (
+                  <svg className="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  item.icon
+                )}
+              </span>
+              <span className="flex-1">{item.label}</span>
+              {isPending && (
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              )}
             </Link>
           );
         })}

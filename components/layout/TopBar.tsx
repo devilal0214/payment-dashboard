@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { SessionUser } from '@/lib/auth/session';
+import { triggerNavigationProgress } from './NavigationProgress';
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Administrator',
@@ -16,11 +18,20 @@ interface TopBarProps {
 
 export default function TopBar({ user }: TopBarProps) {
   const router = useRouter();
+  const [loggingOut, setLoggingOut] = useState(false);
 
   async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
-    router.refresh();
+    if (loggingOut) return;
+    setLoggingOut(true);
+    triggerNavigationProgress();
+
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      router.push('/login');
+      router.refresh();
+    } catch {
+      setLoggingOut(false);
+    }
   }
 
   return (
@@ -49,14 +60,22 @@ export default function TopBar({ user }: TopBarProps) {
         <button
           id="topbar-logout"
           onClick={handleLogout}
+          disabled={loggingOut}
           className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-zinc-600
-                     hover:text-zinc-950 hover:bg-zinc-100 rounded border border-transparent hover:border-zinc-200 transition-colors"
+                     hover:text-zinc-950 hover:bg-zinc-100 rounded border border-transparent hover:border-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-          Sign Out
+          {loggingOut ? (
+            <svg className="w-3.5 h-3.5 animate-spin text-zinc-900" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : (
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          )}
+          {loggingOut ? 'Signing Out...' : 'Sign Out'}
         </button>
       </div>
     </header>
